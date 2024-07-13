@@ -9,34 +9,46 @@ import wgpu "vendor:wgpu"
 import wgpu_glfw "vendor:wgpu/glfwglue"
 
 
-EngineSettings :: struct {
-	title: string,
-	size:  [2]u32,
+HOT_RELOAD_SHADERS :: true
+SURFACE_FORMAT := wgpu.TextureFormat.BGRA8UnormSrgb
+HDR_FORMAT := wgpu.TextureFormat.RGBA16Float
+HDR_SCREEN_TEXTURE_SETTINGS := TextureSettings {
+	label        = "hdr_screen_texture",
+	format       = HDR_FORMAT,
+	address_mode = .ClampToEdge,
+	mag_filter   = .Linear,
+	min_filter   = .Nearest,
+	usage        = {.RenderAttachment, .TextureBinding},
 }
 
-SURFACE_FORMAT := wgpu.TextureFormat.BGRA8UnormSrgb
-
-HOT_RELOAD_SHADERS :: true
+EngineSettings :: struct {
+	title:        string,
+	initial_size: [2]u32,
+	tonemapping:  TonemappingMode,
+	clear_color:  Color,
+}
 
 Engine :: struct {
-	total_time:      f64,
-	delta_time:      f64,
-	input:           Input,
-	settings:        EngineSettings,
-	frame_size:      [2]u32,
-	resized:         bool,
-	should_close:    bool,
-	window:          glfw.WindowHandle,
-	surface_config:  wgpu.SurfaceConfiguration,
-	surface:         wgpu.Surface,
-	instance:        wgpu.Instance,
-	adapter:         wgpu.Adapter,
-	device:          wgpu.Device,
-	queue:           wgpu.Queue,
-	shader_registry: ShaderRegistry,
-	globals_uniform: UniformBuffer(Globals),
-	sprite_renderer: SpriteRenderer,
-	ui_renderer:     UiRenderer,
+	total_time:           f64,
+	delta_time:           f64,
+	input:                Input,
+	settings:             EngineSettings,
+	frame_size:           [2]u32,
+	resized:              bool,
+	should_close:         bool,
+	window:               glfw.WindowHandle,
+	surface_config:       wgpu.SurfaceConfiguration,
+	surface:              wgpu.Surface,
+	instance:             wgpu.Instance,
+	adapter:              wgpu.Adapter,
+	device:               wgpu.Device,
+	queue:                wgpu.Queue,
+	hdr_screen_texture:   Texture,
+	shader_registry:      ShaderRegistry,
+	globals_uniform:      UniformBuffer(Globals),
+	tonemapping_pipeline: RenderPipeline,
+	sprite_renderer:      SpriteRenderer,
+	ui_renderer:          UiRenderer,
 }
 
 
@@ -49,18 +61,22 @@ Globals :: struct {
 	_pad:        f32,
 }
 
-engine_create :: proc(engine: ^Engine, settings: EngineSettings) {
-	engine.settings = settings
+engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
+	engine.settings = engine_settings
 	_init_glfw_window(engine)
 	_init_wgpu(engine)
-	engine.shader_registry = shader_registry_create(engine.device)
-	uniform_buffer_create(&engine.globals_uniform, engine.device)
+	hdr_screen_texture = texture_create(device, frame_size, HDR_SCREEN_TEXTURE_SETTINGS)
+	shader_registry = shader_registry_create(device)
+	uniform_buffer_create(&globals_uniform, device)
+	engine.tonemapping_pipeline.config = tonemapping_pipeline_config(device)
+	render_pipeline_create_panic(&tonemapping_pipeline, device, &shader_registry)
+
 	sprite_renderer_create(
-		&engine.sprite_renderer,
-		engine.device,
-		engine.queue,
-		&engine.shader_registry,
-		engine.globals_uniform.bind_group_layout,
+		&sprite_renderer,
+		device,
+		queue,
+		&shader_registry,
+		globals_uniform.bind_group_layout,
 	)
 	// ui_renderer_create(
 	// 	&engine.ui_renderer,
@@ -71,7 +87,6 @@ engine_create :: proc(engine: ^Engine, settings: EngineSettings) {
 	// )
 }
 
-
 engine_destroy :: proc(engine: ^Engine) {
 	uniform_buffer_destroy(&engine.globals_uniform)
 	sprite_renderer_destroy(&engine.sprite_renderer)
@@ -80,7 +95,6 @@ engine_destroy :: proc(engine: ^Engine) {
 	wgpu.DeviceDestroy(engine.device)
 	wgpu.InstanceRelease(engine.instance)
 }
-
 
 engine_start_frame :: proc(engine: ^Engine) -> bool {
 	if engine.should_close {
@@ -119,12 +133,20 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 
 }
 
+// Note: assumes that engine.frame_size already contains the new size from the gltf resize callback
 _engine_resize :: proc(engine: ^Engine) {
 	engine.resized = false
 	print("resized:", engine.surface_config)
 	engine.surface_config.width = engine.frame_size.x
 	engine.surface_config.height = engine.frame_size.y
 	wgpu.SurfaceConfigure(engine.surface, &engine.surface_config)
+
+	texture_destroy(&engine.hdr_screen_texture)
+	engine.hdr_screen_texture = texture_create(
+		engine.device,
+		engine.frame_size,
+		HDR_SCREEN_TEXTURE_SETTINGS,
+	)
 }
 
 _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
@@ -181,32 +203,47 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
 
-	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
+	// /////////////////////////////////////////////////////////////////////////////
+	// SECTION: HDR Rendering
+	// /////////////////////////////////////////////////////////////////////////////
+
+
+	hdr_pass := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&wgpu.RenderPassDescriptor {
 			label = "surface render pass",
 			colorAttachmentCount = 1,
 			colorAttachments = &wgpu.RenderPassColorAttachment {
-				view = surface_view,
+				view = engine.hdr_screen_texture.view,
 				resolveTarget = nil,
 				loadOp = .Clear,
 				storeOp = .Store,
-				clearValue = wgpu.Color{0.2, 0.3, 0.4, 1.0},
+				clearValue = color_to_wgpu(engine.settings.clear_color),
 			},
 			depthStencilAttachment = nil,
 			occlusionQuerySet = nil,
 			timestampWrites = nil,
 		},
 	)
-	defer wgpu.RenderPassEncoderRelease(render_pass_encoder)
+	defer wgpu.RenderPassEncoderRelease(hdr_pass)
+	sprite_renderer_render(&engine.sprite_renderer, hdr_pass, engine.globals_uniform.bind_group)
+	wgpu.RenderPassEncoderEnd(hdr_pass)
 
-	sprite_renderer_render(
-		&engine.sprite_renderer,
-		render_pass_encoder,
-		engine.globals_uniform.bind_group,
+	// /////////////////////////////////////////////////////////////////////////////
+	// SECTION: Tonemapping
+	// /////////////////////////////////////////////////////////////////////////////
+	tonemap(
+		command_encoder,
+		engine.tonemapping_pipeline.pipeline,
+		engine.hdr_screen_texture.bind_group,
+		surface_view,
+		engine.settings.tonemapping,
 	)
+	// /////////////////////////////////////////////////////////////////////////////
+	// SECTION: Present
+	// /////////////////////////////////////////////////////////////////////////////
 
-	wgpu.RenderPassEncoderEnd(render_pass_encoder)
+
 	command_buffer := wgpu.CommandEncoderFinish(command_encoder, nil)
 	defer wgpu.CommandBufferRelease(command_buffer)
 
@@ -221,8 +258,8 @@ _init_glfw_window :: proc(engine: ^Engine) {
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
 	glfw.WindowHint(glfw.RESIZABLE, 1)
 	engine.window = glfw.CreateWindow(
-		i32(engine.settings.size.x),
-		i32(engine.settings.size.y),
+		i32(engine.settings.initial_size.x),
+		i32(engine.settings.initial_size.y),
 		strings.clone_to_cstring(engine.settings.title),
 		nil,
 		nil,
@@ -254,8 +291,6 @@ _init_glfw_window :: proc(engine: ^Engine) {
 	glfw.SetMouseButtonCallback(engine.window, mouse_button_callback)
 }
 
-// init_hdr_render_target :: pro
-
 _init_wgpu :: proc(engine: ^Engine) {
 	instance_extras := wgpu.InstanceExtras {
 		chain = {next = nil, sType = wgpu.SType.InstanceExtras},
@@ -265,7 +300,6 @@ _init_wgpu :: proc(engine: ^Engine) {
 		&wgpu.InstanceDescriptor{nextInChain = &instance_extras.chain},
 	)
 	engine.surface = wgpu_glfw.GetSurface(engine.instance, engine.window)
-
 
 	AwaitStatus :: enum {
 		Awaiting,
@@ -292,7 +326,6 @@ _init_wgpu :: proc(engine: ^Engine) {
 			userdata: rawptr,
 		) {
 			adapter_res: ^AdapterResponse = auto_cast userdata
-
 			adapter_res.status = status
 			adapter_res.adapter = adapter
 			adapter_res.message = message
@@ -316,22 +349,30 @@ _init_wgpu :: proc(engine: ^Engine) {
 	device_res: DeviceRes
 
 
-	// TODO:
-	// required_features: config.features,
-	// required_limits: wgpu::Limits {
-	// 	max_push_constant_size: config.max_push_constant_size,
-	// 	..Default::default()
-	// },
+	required_features := [?]wgpu.FeatureName{.PushConstants}
+	required_limits_extras := wgpu.RequiredLimitsExtras {
+		chain = {sType = .RequiredLimitsExtras},
+		limits = wgpu.NativeLimits{maxPushConstantSize = 128, maxNonSamplerBindings = 1_000_000},
+	}
+	required_limits := wgpu.RequiredLimits {
+		nextInChain = &required_limits_extras.chain,
+		limits      = WGPU_DEFAULT_LIMITS,
+	}
 	wgpu.AdapterRequestDevice(
 		engine.adapter,
-		&wgpu.DeviceDescriptor{},
+		&wgpu.DeviceDescriptor {
+			requiredFeatureCount = uint(len(required_features)),
+			requiredFeatures = &required_features[0],
+			requiredLimits = &required_limits,
+		},
 		proc "c" (
 			status: wgpu.RequestDeviceStatus,
 			device: wgpu.Device,
 			message: cstring,
 			userdata: rawptr,
 		) {
-
+			context = runtime.default_context()
+			print("Err: ", message)
 			device_res: ^DeviceRes = auto_cast userdata
 			device_res.status = status
 			device_res.device = device
@@ -371,4 +412,73 @@ _init_wgpu :: proc(engine: ^Engine) {
 
 	wgpu.SurfaceConfigure(engine.surface, &engine.surface_config)
 
+}
+
+tonemapping_pipeline_config :: proc(device: wgpu.Device) -> RenderPipelineConfig {
+	return RenderPipelineConfig {
+		debug_name = "tonemapping",
+		vs_shader = "screen",
+		vs_entry_point = "vs_main",
+		fs_shader = "tonemapping",
+		fs_entry_point = "fs_main",
+		topology = .TriangleList,
+		vertex = {},
+		instance = {},
+		bind_group_layouts = {rgba_bind_group_layout_cached(device)},
+		push_constant_ranges = {
+			wgpu.PushConstantRange {
+				stages = {.Fragment},
+				start = 0,
+				end = size_of(TonemappingMode),
+			},
+		},
+		blend = ALPHA_BLENDING,
+		format = SURFACE_FORMAT,
+	}
+}
+
+TonemappingMode :: enum u32 {
+	Disabled = 0,
+	Aces     = 1,
+}
+
+tonemap :: proc(
+	command_encoder: wgpu.CommandEncoder,
+	tonemapping_pipeline: wgpu.RenderPipeline,
+	hdr_texture_bind_group: wgpu.BindGroup,
+	sdr_texture_view: wgpu.TextureView,
+	mode: TonemappingMode,
+) {
+	tonemap_pass := wgpu.CommandEncoderBeginRenderPass(
+		command_encoder,
+		&wgpu.RenderPassDescriptor {
+			label = "surface render pass",
+			colorAttachmentCount = 1,
+			colorAttachments = &wgpu.RenderPassColorAttachment {
+				view = sdr_texture_view,
+				resolveTarget = nil,
+				loadOp = .Clear,
+				storeOp = .Store,
+				clearValue = wgpu.Color{0.2, 0.3, 0.4, 1.0},
+			},
+			depthStencilAttachment = nil,
+			occlusionQuerySet = nil,
+			timestampWrites = nil,
+		},
+	)
+	defer wgpu.RenderPassEncoderRelease(tonemap_pass)
+
+	wgpu.RenderPassEncoderSetPipeline(tonemap_pass, tonemapping_pipeline)
+	wgpu.RenderPassEncoderSetBindGroup(tonemap_pass, 0, hdr_texture_bind_group)
+	push_constants := mode
+	wgpu.RenderPassEncoderSetPushConstants(
+		tonemap_pass,
+		{.Fragment},
+		0,
+		size_of(TonemappingMode),
+		&push_constants,
+	)
+	wgpu.RenderPassEncoderDraw(tonemap_pass, 3, 1, 0, 0)
+
+	wgpu.RenderPassEncoderEnd(tonemap_pass)
 }

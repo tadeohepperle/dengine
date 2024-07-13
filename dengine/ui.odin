@@ -1486,6 +1486,7 @@ ui_colored_pipeline_config :: proc(
 		bind_group_layouts = {globals_layout},
 		push_constant_ranges = {},
 		blend = ALPHA_BLENDING,
+		format = HDR_FORMAT,
 	}
 }
 
@@ -1513,6 +1514,7 @@ ui_textured_pipeline_config :: proc(
 		bind_group_layouts = {globals_layout, rgba_bind_group_layout_cached(device)},
 		push_constant_ranges = {},
 		blend = ALPHA_BLENDING,
+		format = HDR_FORMAT,
 	}
 }
 
@@ -1541,6 +1543,7 @@ ui_glyph_pipeline_config :: proc(
 		bind_group_layouts = {globals_layout, rgba_bind_group_layout_cached(device)},
 		push_constant_ranges = {},
 		blend = ALPHA_BLENDING,
+		format = HDR_FORMAT,
 	}
 }
 

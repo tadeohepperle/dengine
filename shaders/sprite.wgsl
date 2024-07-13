@@ -41,5 +41,5 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: SpriteInstance) -
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32>  {
     let image_color = textureSample(t_diffuse, s_diffuse, in.uv);
-    return image_color.rgba * in.color * 3.0;
+    return image_color.rgba * in.color * 1.0;
 }

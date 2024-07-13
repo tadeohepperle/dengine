@@ -127,6 +127,7 @@ RenderPipelineConfig :: struct {
 	bind_group_layouts:   [dynamic]wgpu.BindGroupLayout,
 	push_constant_ranges: [dynamic]wgpu.PushConstantRange,
 	blend:                Maybe(wgpu.BlendState), // if nil, no blending.
+	format:               wgpu.TextureFormat,
 }
 
 ALPHA_BLENDING :: wgpu.BlendState {
@@ -192,13 +193,11 @@ render_pipeline_create :: proc(
 	config := &pipeline.config
 	wgpu.DevicePushErrorScope(device, .Validation)
 	if pipeline.layout == nil {
+		push_consts := config.push_constant_ranges
 		extras := wgpu.PipelineLayoutExtras {
-			chain = {sType = .BindGroupEntryExtras},
-			pushConstantRangeCount = uint(len(config.push_constant_ranges)),
-			pushConstantRanges = nil,
-		}
-		if len(config.push_constant_ranges) != 0 {
-			extras.pushConstantRanges = &config.push_constant_ranges[0]
+			chain = {sType = .PipelineLayoutExtras},
+			pushConstantRangeCount = uint(len(push_consts)),
+			pushConstantRanges = nil if len(push_consts) == 0 else &push_consts[0],
 		}
 		bindGroupLayouts :=
 			nil if len(config.bind_group_layouts) == 0 else &config.bind_group_layouts[0]
@@ -207,6 +206,7 @@ render_pipeline_create :: proc(
 			bindGroupLayoutCount = uint(len(config.bind_group_layouts)),
 			bindGroupLayouts     = bindGroupLayouts,
 		}
+		print("pipeline layout for ", config.debug_name, layout_desc)
 		pipeline.layout = wgpu.DeviceCreatePipelineLayout(device, &layout_desc)
 	}
 	vs_shader_module := shader_registry_get(reg, config.vs_shader)
@@ -274,7 +274,7 @@ render_pipeline_create :: proc(
 			entryPoint  = config.fs_entry_point,
 			targetCount = 1,
 			targets     = &wgpu.ColorTargetState {
-				format    = SURFACE_FORMAT,
+				format    = config.format,
 				writeMask = wgpu.ColorWriteMaskFlags_All,
 				blend     = blend, // todo! alpha blending
 			},
@@ -340,4 +340,84 @@ wgpu_pop_error_scope :: proc(device: wgpu.Device) -> MaybeWgpuError {
 		return error_res.error
 	}
 	return nil
+}
+
+
+// This is the set of limits that is guaranteed to work on all modern backends and is
+// guaranteed to be supported by WebGPU. Applications needing more modern features can
+// use this as a reasonable set of limits if they are targeting only desktop and modern
+// mobile devices.
+WGPU_DEFAULT_LIMITS :: wgpu.Limits {
+	maxTextureDimension1D                     = 8192,
+	maxTextureDimension2D                     = 8192,
+	maxTextureDimension3D                     = 2048,
+	maxTextureArrayLayers                     = 256,
+	maxBindGroups                             = 4,
+	maxBindGroupsPlusVertexBuffers            = 24,
+	maxBindingsPerBindGroup                   = 1000,
+	maxDynamicUniformBuffersPerPipelineLayout = 8,
+	maxDynamicStorageBuffersPerPipelineLayout = 4,
+	maxSampledTexturesPerShaderStage          = 16,
+	maxSamplersPerShaderStage                 = 16,
+	maxStorageBuffersPerShaderStage           = 8,
+	maxStorageTexturesPerShaderStage          = 4,
+	maxUniformBuffersPerShaderStage           = 12,
+	maxUniformBufferBindingSize               = 64 << 10, // (64 KiB)
+	maxStorageBufferBindingSize               = 128 << 20, // (128 MiB)
+	minUniformBufferOffsetAlignment           = 256,
+	minStorageBufferOffsetAlignment           = 256,
+	maxVertexBuffers                          = 8,
+	maxBufferSize                             = 256 << 20, // (256 MiB)
+	maxVertexAttributes                       = 16,
+	maxVertexBufferArrayStride                = 2048,
+	maxInterStageShaderComponents             = 60,
+	maxInterStageShaderVariables              = 16,
+	maxColorAttachments                       = 8,
+	maxColorAttachmentBytesPerSample          = 32,
+	maxComputeWorkgroupStorageSize            = 16384,
+	maxComputeInvocationsPerWorkgroup         = 256,
+	maxComputeWorkgroupSizeX                  = 256,
+	maxComputeWorkgroupSizeY                  = 256,
+	maxComputeWorkgroupSizeZ                  = 64,
+	maxComputeWorkgroupsPerDimension          = 65535,
+}
+
+
+// This is a set of limits that is guaranteed to work on almost all backends, including
+// “downlevel” backends such as OpenGL and D3D11, other than WebGL. For most applications
+// we recommend using these limits, assuming they are high enough for your application,
+// and you do not intent to support WebGL.
+WGPU_DOWNLEVEL_LIMITS :: wgpu.Limits {
+	maxTextureDimension1D                     = 2048,
+	maxTextureDimension2D                     = 2048,
+	maxTextureDimension3D                     = 256,
+	maxTextureArrayLayers                     = 256,
+	maxBindGroups                             = 4,
+	maxBindGroupsPlusVertexBuffers            = 24,
+	maxBindingsPerBindGroup                   = 1000,
+	maxDynamicUniformBuffersPerPipelineLayout = 8,
+	maxDynamicStorageBuffersPerPipelineLayout = 4,
+	maxSampledTexturesPerShaderStage          = 16,
+	maxSamplersPerShaderStage                 = 16,
+	maxStorageBuffersPerShaderStage           = 4,
+	maxStorageTexturesPerShaderStage          = 4,
+	maxUniformBuffersPerShaderStage           = 12,
+	maxUniformBufferBindingSize               = 16 << 10, // (16 KiB)
+	maxStorageBufferBindingSize               = 128 << 20, // (128 MiB)
+	minUniformBufferOffsetAlignment           = 256,
+	minStorageBufferOffsetAlignment           = 256,
+	maxVertexBuffers                          = 8,
+	maxBufferSize                             = 256 << 20, // (256 MiB)
+	maxVertexAttributes                       = 16,
+	maxVertexBufferArrayStride                = 2048,
+	maxInterStageShaderComponents             = 60,
+	maxInterStageShaderVariables              = 16,
+	maxColorAttachments                       = 8,
+	maxColorAttachmentBytesPerSample          = 32,
+	maxComputeWorkgroupStorageSize            = 16352,
+	maxComputeInvocationsPerWorkgroup         = 256,
+	maxComputeWorkgroupSizeX                  = 256,
+	maxComputeWorkgroupSizeY                  = 256,
+	maxComputeWorkgroupSizeZ                  = 64,
+	maxComputeWorkgroupsPerDimension          = 65535,
 }

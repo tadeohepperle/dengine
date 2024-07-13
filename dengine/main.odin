@@ -21,7 +21,7 @@ print_line :: proc(message: string = "") {
 
 main :: proc() {
 	engine: Engine
-	engine_create(&engine, EngineSettings{title = "Hello", size = {800, 600}})
+	engine_create(&engine, EngineSettings{title = "Hello", initial_size = {800, 600}})
 	defer {engine_destroy(&engine)}
 	scene := scene_create()
 	defer {scene_destroy(scene)}
@@ -76,6 +76,11 @@ main :: proc() {
 		// 	Sprite{texture = corn, pos = {0, 0}, size = {1, 1}, rotation = 0, color = Color_Aqua},
 		// )
 
+		if engine.input.keys[.SPACE] == .Pressed {
+			engine.settings.tonemapping = .Aces
+		} else {
+			engine.settings.tonemapping = .Disabled
+		}
 
 		keys := [?]Key{.LEFT, .RIGHT, .UP, .DOWN}
 		directions := [?]Vec2{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}

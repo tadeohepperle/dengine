@@ -165,7 +165,11 @@ load_shader_wgsl :: proc(
 	}
 	content, _ := os.read_entire_file(shader.src.path)
 	if len(content) == 0 {
-		err = "Empty shader file!"
+		err = fmt.aprintf(
+			"Empty shader file: %s",
+			shader.src.path,
+			allocator = context.temp_allocator,
+		)
 		return
 	}
 	shader.src.wgsl_code = string(content)

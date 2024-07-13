@@ -105,6 +105,7 @@ texture_create :: proc(
 ) -> (
 	texture: Texture,
 ) {
+	assert(wgpu.TextureUsage.TextureBinding in settings.usage)
 	texture.settings = settings
 	descriptor := wgpu.TextureDescriptor {
 		usage = settings.usage,
@@ -154,6 +155,13 @@ texture_create :: proc(
 	return
 }
 
+
+texture_destroy :: proc(texture: ^Texture) {
+	wgpu.BindGroupRelease(texture.bind_group)
+	wgpu.SamplerRelease(texture.sampler)
+	wgpu.TextureViewRelease(texture.view)
+	wgpu.TextureRelease(texture.texture)
+}
 
 rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
 	@(static)
