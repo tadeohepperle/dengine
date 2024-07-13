@@ -22,10 +22,21 @@ HDR_SCREEN_TEXTURE_SETTINGS := TextureSettings {
 }
 
 EngineSettings :: struct {
-	title:        string,
-	initial_size: [2]u32,
-	tonemapping:  TonemappingMode,
-	clear_color:  Color,
+	title:          string,
+	initial_size:   [2]u32,
+	tonemapping:    TonemappingMode,
+	clear_color:    Color,
+	bloom_enabled:  bool,
+	bloom_settings: BloomSettings,
+}
+
+DEFAULT_ENGINE_SETTINGS :: EngineSettings {
+	title          = "Odin Engine",
+	initial_size   = {800, 600},
+	tonemapping    = .Aces,
+	clear_color    = {0.001, 0.001, 0.002, 1.0},
+	bloom_enabled  = true,
+	bloom_settings = DEFAULT_BLOOM_SETTINGS,
 }
 
 Engine :: struct {
@@ -47,10 +58,10 @@ Engine :: struct {
 	shader_registry:      ShaderRegistry,
 	globals_uniform:      UniformBuffer(Globals),
 	tonemapping_pipeline: RenderPipeline,
+	bloom_renderer:       BloomRenderer,
 	sprite_renderer:      SpriteRenderer,
 	ui_renderer:          UiRenderer,
 }
-
 
 Globals :: struct {
 	screen_size: Vec2,
@@ -70,7 +81,14 @@ engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
 	uniform_buffer_create(&globals_uniform, device)
 	engine.tonemapping_pipeline.config = tonemapping_pipeline_config(device)
 	render_pipeline_create_panic(&tonemapping_pipeline, device, &shader_registry)
-
+	bloom_renderer_create(
+		&engine.bloom_renderer,
+		device,
+		queue,
+		&shader_registry,
+		globals_uniform.bind_group_layout,
+		frame_size,
+	)
 	sprite_renderer_create(
 		&sprite_renderer,
 		device,
@@ -89,6 +107,8 @@ engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
 
 engine_destroy :: proc(engine: ^Engine) {
 	uniform_buffer_destroy(&engine.globals_uniform)
+	render_pipeline_destroy(&engine.tonemapping_pipeline)
+	bloom_renderer_destroy(&engine.bloom_renderer)
 	sprite_renderer_destroy(&engine.sprite_renderer)
 	ui_renderer_destroy(&engine.ui_renderer)
 	wgpu.QueueRelease(engine.queue)
@@ -118,7 +138,14 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 
 
 _engine_hot_reload_shaders :: proc(engine: ^Engine) {
-	pipelines := [?]^RenderPipeline{&engine.sprite_renderer.pipeline}
+	pipelines := [?]^RenderPipeline {
+		&engine.sprite_renderer.pipeline,
+		&engine.tonemapping_pipeline,
+		&engine.bloom_renderer.first_downsample_pipeline,
+		&engine.bloom_renderer.downsample_pipeline,
+		&engine.bloom_renderer.upsample_pipeline,
+		&engine.bloom_renderer.final_upsample_pipeline,
+	}
 	shader_registry_hot_reload(&engine.shader_registry, pipelines[:])
 }
 
@@ -147,6 +174,8 @@ _engine_resize :: proc(engine: ^Engine) {
 		engine.frame_size,
 		HDR_SCREEN_TEXTURE_SETTINGS,
 	)
+
+	bloom_renderer_resize(&engine.bloom_renderer, engine.frame_size)
 }
 
 _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
@@ -207,7 +236,6 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	// SECTION: HDR Rendering
 	// /////////////////////////////////////////////////////////////////////////////
 
-
 	hdr_pass := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&wgpu.RenderPassDescriptor {
@@ -230,8 +258,16 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	wgpu.RenderPassEncoderEnd(hdr_pass)
 
 	// /////////////////////////////////////////////////////////////////////////////
-	// SECTION: Tonemapping
+	// SECTION: Tonemapping and Bloom
 	// /////////////////////////////////////////////////////////////////////////////
+	render_bloom(
+		command_encoder,
+		&engine.bloom_renderer,
+		&engine.hdr_screen_texture,
+		engine.globals_uniform.bind_group,
+		engine.settings.bloom_settings,
+	)
+
 	tonemap(
 		command_encoder,
 		engine.tonemapping_pipeline.pipeline,

@@ -50,7 +50,11 @@ dynamic_buffer_write :: proc(
 }
 
 dynamic_buffer_destroy :: proc(buffer: ^DynamicBuffer($T)) {
-	wgpu.BufferDestroy(buffer.buffer)
+	if buffer.buffer != nil {
+		wgpu.BufferDestroy(buffer.buffer)
+		buffer.buffer = nil
+	}
+
 }
 
 UniformBuffer :: struct($T: typeid) {
@@ -206,7 +210,7 @@ render_pipeline_create :: proc(
 			bindGroupLayoutCount = uint(len(config.bind_group_layouts)),
 			bindGroupLayouts     = bindGroupLayouts,
 		}
-		print("pipeline layout for ", config.debug_name, layout_desc)
+
 		pipeline.layout = wgpu.DeviceCreatePipelineLayout(device, &layout_desc)
 	}
 	vs_shader_module := shader_registry_get(reg, config.vs_shader)

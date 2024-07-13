@@ -23,9 +23,7 @@ struct VertexOutput{
 
 fn world_pos_to_ndc(world_pos: vec2<f32>) -> vec4<f32>{
 	let ndc_y_flip = (globals.camera_pos - world_pos) / globals.camera_size;
-	
 	return vec4<f32>(ndc_y_flip.x, -ndc_y_flip.y, 0.0,1.0);
-
 }
 
 @vertex
@@ -41,5 +39,5 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: SpriteInstance) -
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32>  {
     let image_color = textureSample(t_diffuse, s_diffuse, in.uv);
-    return image_color.rgba * in.color * 1.0;
+    return image_color * in.color * 1.3;
 }

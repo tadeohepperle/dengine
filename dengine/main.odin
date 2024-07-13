@@ -21,7 +21,7 @@ print_line :: proc(message: string = "") {
 
 main :: proc() {
 	engine: Engine
-	engine_create(&engine, EngineSettings{title = "Hello", initial_size = {800, 600}})
+	engine_create(&engine, DEFAULT_ENGINE_SETTINGS)
 	defer {engine_destroy(&engine)}
 	scene := scene_create()
 	defer {scene_destroy(scene)}
