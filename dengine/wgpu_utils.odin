@@ -1,6 +1,7 @@
 package dengine
 
 import "base:runtime"
+import "core:fmt"
 import "core:strings"
 import wgpu "vendor:wgpu"
 
@@ -14,10 +15,10 @@ DynamicBuffer :: struct($T: typeid) {
 
 MIN_BUFFER_CAPACITY :: 1024
 dynamic_buffer_write :: proc(
-	device: wgpu.Device,
-	queue: wgpu.Queue,
 	buffer: ^DynamicBuffer($T),
 	elements: []T,
+	device: wgpu.Device,
+	queue: wgpu.Queue,
 ) {
 	buffer.usage |= {.CopyDst}
 	buffer.length = len(elements)
@@ -59,7 +60,14 @@ UniformBuffer :: struct($T: typeid) {
 	usage:             wgpu.BufferUsageFlags,
 }
 
-uniform_buffer_create :: proc(device: wgpu.Device, buffer: ^UniformBuffer($T)) {
+
+uniform_buffer_destroy :: proc(buffer: ^UniformBuffer($T)) {
+	wgpu.BindGroupRelease(buffer.bind_group)
+	wgpu.BindGroupLayoutRelease(buffer.bind_group_layout)
+	wgpu.BufferRelease(buffer.buffer) // TODO: What is the difference between BufferDestroy and BufferRelease
+}
+
+uniform_buffer_create :: proc(buffer: ^UniformBuffer($T), device: wgpu.Device) {
 	buffer.usage |= {.CopyDst, .Uniform}
 	buffer.buffer = wgpu.DeviceCreateBuffer(
 		device,
@@ -108,6 +116,7 @@ uniform_buffer_write :: proc(queue: wgpu.Queue, buffer: ^UniformBuffer($T), data
 // `pipeline` and `shader_module`, `buffer_count` and `buffers` fields in wgpu.RenderPipelineDescriptor
 // are filled out autimatically and can be left empty when specifying the config.
 RenderPipelineConfig :: struct {
+	debug_name:           string,
 	vs_shader:            string,
 	vs_entry_point:       cstring,
 	fs_shader:            string,
@@ -159,16 +168,29 @@ RenderPipeline :: struct {
 	pipeline: wgpu.RenderPipeline,
 }
 
-create_render_pipeline :: proc(
+
+render_pipeline_create_panic :: proc(
+	pipeline: ^RenderPipeline,
 	device: wgpu.Device,
 	reg: ^ShaderRegistry,
+) {
+	err := render_pipeline_create(pipeline, device, reg)
+	if err != nil {
+		fmt.panicf(
+			"Failed to create Render Pipeline \"%s\": %s",
+			pipeline.config.debug_name,
+			err.(WgpuError).message,
+		)
+	}
+}
+
+render_pipeline_create :: proc(
 	pipeline: ^RenderPipeline,
+	device: wgpu.Device,
+	reg: ^ShaderRegistry,
 ) -> MaybeWgpuError {
 	config := &pipeline.config
 	wgpu.DevicePushErrorScope(device, .Validation)
-	if pipeline.pipeline != nil {
-		wgpu.RenderPipelineRelease(pipeline.pipeline)
-	}
 	if pipeline.layout == nil {
 		extras := wgpu.PipelineLayoutExtras {
 			chain = {sType = .BindGroupEntryExtras},
@@ -263,12 +285,25 @@ create_render_pipeline :: proc(
 	pipeline_handle := wgpu.DeviceCreateRenderPipeline(device, &pipeline_descriptor)
 	err := wgpu_pop_error_scope(device)
 	if err == nil {
+		old_pipeline := pipeline.pipeline
 		pipeline.pipeline = pipeline_handle
+		if old_pipeline != nil {
+			wgpu.RenderPipelineRelease(old_pipeline)
+		}
 	}
 
 	return err
 }
 
+render_pipeline_destroy :: proc(pipeline: ^RenderPipeline) {
+	// todo! config is not destroyed
+	if pipeline.layout != nil {
+		wgpu.PipelineLayoutRelease(pipeline.layout)
+	}
+	if pipeline.pipeline != nil {
+		wgpu.RenderPipelineRelease(pipeline.pipeline)
+	}
+}
 
 WgpuError :: struct {
 	type:    wgpu.ErrorType,

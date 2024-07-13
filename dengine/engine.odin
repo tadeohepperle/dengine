@@ -34,8 +34,9 @@ Engine :: struct {
 	device:          wgpu.Device,
 	queue:           wgpu.Queue,
 	shader_registry: ShaderRegistry,
-	sprite_renderer: SpriteRenderer,
 	globals_uniform: UniformBuffer(Globals),
+	sprite_renderer: SpriteRenderer,
+	ui_renderer:     UiRenderer,
 }
 
 
@@ -53,7 +54,7 @@ engine_create :: proc(engine: ^Engine, settings: EngineSettings) {
 	_init_glfw_window(engine)
 	_init_wgpu(engine)
 	engine.shader_registry = shader_registry_create(engine.device)
-	uniform_buffer_create(engine.device, &engine.globals_uniform)
+	uniform_buffer_create(&engine.globals_uniform, engine.device)
 	sprite_renderer_create(
 		&engine.sprite_renderer,
 		engine.device,
@@ -61,14 +62,23 @@ engine_create :: proc(engine: ^Engine, settings: EngineSettings) {
 		&engine.shader_registry,
 		engine.globals_uniform.bind_group_layout,
 	)
+	// ui_renderer_create(
+	// 	&engine.ui_renderer,
+	// 	engine.device,
+	// 	engine.queue,
+	// 	&engine.shader_registry,
+	// 	engine.globals_uniform.bind_group_layout,
+	// )
 }
 
 
 engine_destroy :: proc(engine: ^Engine) {
-	// todo! destroy uniforms
-	// destroy render pipelines
+	uniform_buffer_destroy(&engine.globals_uniform)
+	sprite_renderer_destroy(&engine.sprite_renderer)
+	ui_renderer_destroy(&engine.ui_renderer)
+	wgpu.QueueRelease(engine.queue)
 	wgpu.DeviceDestroy(engine.device)
-
+	wgpu.InstanceRelease(engine.instance)
 }
 
 
@@ -94,7 +104,8 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 
 
 _engine_hot_reload_shaders :: proc(engine: ^Engine) {
-	// todo!
+	pipelines := [?]^RenderPipeline{&engine.sprite_renderer.pipeline}
+	shader_registry_hot_reload(&engine.shader_registry, pipelines[:])
 }
 
 engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
@@ -219,25 +230,12 @@ _init_glfw_window :: proc(engine: ^Engine) {
 	w, h := glfw.GetFramebufferSize(engine.window)
 	engine.frame_size = {u32(w), u32(h)}
 	glfw.SetWindowUserPointer(engine.window, engine)
-	// framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
-
-	// 	context = runtime.default_context()
-	// 	print("resized:")
-
-	// 	// engine: ^Engine = auto_cast glfw.GetWindowUserPointer(window)
-	// 	// engine.resized = true
-
-	// 	// engine.frame_size = {u32(width), u32(height)}
-
-	// }
-	// glfw.SetFramebufferSizeCallback(engine.window, framebuffer_size_callback)
 
 	framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
 		context = runtime.default_context()
 		engine: ^Engine = auto_cast glfw.GetWindowUserPointer(window)
 		engine.resized = true
 		engine.frame_size = {u32(width), u32(height)}
-		// os.write_entire_file("hello.txt", transmute([]u8)fmt.aprint("w,h = ", width, height))
 	}
 	glfw.SetFramebufferSizeCallback(engine.window, framebuffer_size_callback)
 

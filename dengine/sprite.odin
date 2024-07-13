@@ -129,7 +129,7 @@ SpriteRenderer :: struct {
 
 sprite_renderer_prepare :: proc(rend: ^SpriteRenderer, sprites: []Sprite) {
 	_sort_and_batch_sprites(sprites, &rend.batches, &rend.instances)
-	dynamic_buffer_write(rend.device, rend.queue, &rend.instance_buffer, rend.instances[:])
+	dynamic_buffer_write(&rend.instance_buffer, rend.instances[:], rend.device, rend.queue)
 }
 
 sprite_renderer_render :: proc(
@@ -162,28 +162,34 @@ sprite_renderer_render :: proc(
 	}
 }
 
+
+sprite_renderer_destroy :: proc(rend: ^SpriteRenderer) {
+	delete(rend.batches)
+	delete(rend.instances)
+	render_pipeline_destroy(&rend.pipeline)
+	dynamic_buffer_destroy(&rend.instance_buffer)
+}
+
 sprite_renderer_create :: proc(
 	rend: ^SpriteRenderer,
 	device: wgpu.Device,
 	queue: wgpu.Queue,
 	reg: ^ShaderRegistry,
-	globals_uniform_layout: wgpu.BindGroupLayout,
+	globals_layout: wgpu.BindGroupLayout,
 ) {
 	rend.device = device
 	rend.queue = queue
 	rend.instance_buffer.usage = {.Vertex}
-	rend.pipeline.config = sprite_pipeline_config(device, globals_uniform_layout)
-	err := create_render_pipeline(device, reg, &rend.pipeline)
-	if err != nil {
-		fmt.panicf("Caught error:", err.(WgpuError).message)
-	}
+	rend.pipeline.config = sprite_pipeline_config(device, globals_layout)
+	render_pipeline_create_panic(&rend.pipeline, device, reg)
 }
 
 sprite_pipeline_config :: proc(
 	device: wgpu.Device,
-	globals_uniform_layout: wgpu.BindGroupLayout,
+	globals_layout: wgpu.BindGroupLayout,
 ) -> RenderPipelineConfig {
 	return RenderPipelineConfig {
+		debug_name = "sprite_standard",
 		vs_shader = "sprite",
 		vs_entry_point = "vs_main",
 		fs_shader = "sprite",
@@ -200,7 +206,7 @@ sprite_pipeline_config :: proc(
 				{format = .Float32x4, offset = offset_of(SpriteInstance, uv)},
 			},
 		},
-		bind_group_layouts = {globals_uniform_layout, rgba_bind_group_layout_cached(device)},
+		bind_group_layouts = {globals_layout, rgba_bind_group_layout_cached(device)},
 		push_constant_ranges = {},
 		blend = ALPHA_BLENDING,
 	}

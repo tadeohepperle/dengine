@@ -1,12 +1,22 @@
 package dengine
 
 import "core:fmt"
+import "core:math"
+import "core:strings"
 
 import wgpu "vendor:wgpu"
 
 print :: fmt.println
-print_line :: proc() {
-	fmt.println("------------------------------------------------------------------------")
+print_line :: proc(message: string = "") {
+	if message != "" {
+		fmt.printfln(
+			"-------------------- %s ---------------------------------------------",
+			message,
+		)
+	} else {
+		fmt.println("------------------------------------------------------------------------")
+	}
+
 }
 
 main :: proc() {
@@ -48,19 +58,18 @@ main :: proc() {
 			},
 		)
 
-		for pos in forest {
+		for pos, i in forest {
 			append(
 				&scene.sprites,
 				Sprite {
 					texture = corn,
 					pos = pos,
 					size = {1, 2},
-					rotation = 0,
+					rotation = math.cos(f32(i) + f32(engine.total_time)),
 					color = Color_White,
 				},
 			)
 		}
-
 
 		// append(
 		// 	&scene.sprites,

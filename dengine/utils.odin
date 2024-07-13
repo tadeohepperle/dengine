@@ -28,3 +28,9 @@ next_pow2_number :: proc(n: int) -> int {
 		next *= 2
 	}
 }
+lerp :: proc(a: $T, b: T, s: f32) -> T {
+	return a + (b - a) * s
+}
+
+
+Empty :: struct {}
