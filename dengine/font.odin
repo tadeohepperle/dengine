@@ -43,12 +43,18 @@ FontLoadError :: union {
 	image.Error,
 }
 
+font_destroy :: proc(font: ^Font) {
+	texture_destroy(font.texture)
+	delete(font.glyphs)
+	delete(font.name)
+}
+
 
 // this function expects to find a file at {path}.json and {path}.png, representing the fonts data and sdf glyphs
-load_font :: proc(
+font_create :: proc(
+	path: string,
 	device: wgpu.Device,
 	queue: wgpu.Queue,
-	path: string,
 ) -> (
 	font: Font,
 	error: FontLoadError,
@@ -90,9 +96,8 @@ load_font :: proc(
 	delete(font_with_string_keys.glyphs)
 
 	// read image: 
-
-
 	png_path := fmt.aprintf("%s.sdf_font.png", path, allocator = context.temp_allocator)
+	print(png_path)
 	tex_err: image.Error
 	font.texture = new(Texture)
 	font.texture^, tex_err = texture_from_image_path(device, queue, path = png_path)

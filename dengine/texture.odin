@@ -4,7 +4,7 @@ import "core:image"
 import "core:image/png"
 import wgpu "vendor:wgpu"
 
-IMAGE_FORMAT :: wgpu.TextureFormat.RGBA8UnormSrgb
+IMAGE_FORMAT :: wgpu.TextureFormat.RGBA8Unorm
 
 DEFAULT_TEXTURESETTINGS :: TextureSettings {
 	label        = "",
@@ -66,7 +66,7 @@ texture_from_image :: proc(
 	size := UVec2{u32(img.width), u32(img.height)}
 	texture = texture_create(device, size, settings)
 
-	assert(settings.format == .RGBA8UnormSrgb)
+	assert(settings.format == IMAGE_FORMAT)
 	block_size: u32 = 4
 	bytes_per_row :=
 		((size.x * block_size + COPY_BYTES_PER_ROW_ALIGNMENT - 1) &

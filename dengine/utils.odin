@@ -1,6 +1,7 @@
 package dengine
 
 import "base:runtime"
+import "core:fmt"
 import "core:strings"
 import wgpu "vendor:wgpu"
 
@@ -32,5 +33,17 @@ lerp :: proc(a: $T, b: T, s: f32) -> T {
 	return a + (b - a) * s
 }
 
-
 Empty :: struct {}
+
+print :: fmt.println
+print_line :: proc(message: string = "") {
+	if message != "" {
+		fmt.printfln(
+			"-------------------- %s ---------------------------------------------",
+			message,
+		)
+	} else {
+		fmt.println("------------------------------------------------------------------------")
+	}
+
+}

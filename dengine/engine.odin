@@ -22,29 +22,40 @@ HDR_SCREEN_TEXTURE_SETTINGS := TextureSettings {
 }
 
 EngineSettings :: struct {
-	title:          string,
-	initial_size:   [2]u32,
-	tonemapping:    TonemappingMode,
-	clear_color:    Color,
-	bloom_enabled:  bool,
-	bloom_settings: BloomSettings,
+	title:              string,
+	initial_size:       [2]u32,
+	tonemapping:        TonemappingMode,
+	clear_color:        Color,
+	bloom_enabled:      bool,
+	bloom_settings:     BloomSettings,
+	default_font_path:  string,
+	default_font_color: Color,
+	default_font_size:  f32,
+	power_preference:   wgpu.PowerPreference,
 }
 
 DEFAULT_ENGINE_SETTINGS :: EngineSettings {
-	title          = "Odin Engine",
-	initial_size   = {800, 600},
-	tonemapping    = .Aces,
-	clear_color    = {0.001, 0.001, 0.002, 1.0},
-	bloom_enabled  = true,
-	bloom_settings = DEFAULT_BLOOM_SETTINGS,
+	title              = "Odin Engine",
+	initial_size       = {800, 600},
+	tonemapping        = .Disabled,
+	clear_color        = {0.001, 0.001, 0.002, 1.0},
+	bloom_enabled      = false,
+	bloom_settings     = DEFAULT_BLOOM_SETTINGS,
+	default_font_path  = "assets/marko_one_regular",
+	default_font_color = Color_White,
+	default_font_size  = 24.0,
+	power_preference   = wgpu.PowerPreference.LowPower,
 }
 
 Engine :: struct {
-	total_time:           f64,
-	delta_time:           f64,
+	total_time_f64:       f64, // in seconds
+	delta_time_f64:       f64, // in seconds
+	total_secs:           f32,
+	delta_secs:           f32,
 	input:                Input,
 	settings:             EngineSettings,
-	frame_size:           [2]u32,
+	screen_size:          [2]u32,
+	screen_size_f32:      [2]f32,
 	resized:              bool,
 	should_close:         bool,
 	window:               glfw.WindowHandle,
@@ -73,10 +84,12 @@ Globals :: struct {
 }
 
 engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
+
 	engine.settings = engine_settings
 	_init_glfw_window(engine)
 	_init_wgpu(engine)
-	hdr_screen_texture = texture_create(device, frame_size, HDR_SCREEN_TEXTURE_SETTINGS)
+
+	hdr_screen_texture = texture_create(device, screen_size, HDR_SCREEN_TEXTURE_SETTINGS)
 	shader_registry = shader_registry_create(device)
 	uniform_buffer_create(&globals_uniform, device)
 	engine.tonemapping_pipeline.config = tonemapping_pipeline_config(device)
@@ -87,7 +100,7 @@ engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
 		queue,
 		&shader_registry,
 		globals_uniform.bind_group_layout,
-		frame_size,
+		screen_size,
 	)
 	sprite_renderer_create(
 		&sprite_renderer,
@@ -96,13 +109,16 @@ engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
 		&shader_registry,
 		globals_uniform.bind_group_layout,
 	)
-	// ui_renderer_create(
-	// 	&engine.ui_renderer,
-	// 	engine.device,
-	// 	engine.queue,
-	// 	&engine.shader_registry,
-	// 	engine.globals_uniform.bind_group_layout,
-	// )
+	ui_renderer_create(
+		&engine.ui_renderer,
+		engine.device,
+		engine.queue,
+		&engine.shader_registry,
+		engine.globals_uniform.bind_group_layout,
+		engine.settings.default_font_path,
+		engine.settings.default_font_color,
+		engine.settings.default_font_size,
+	)
 }
 
 engine_destroy :: proc(engine: ^Engine) {
@@ -123,8 +139,11 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 
 	time := glfw.GetTime()
 	glfw.PollEvents()
-	engine.delta_time = time - engine.total_time
-	engine.total_time = time
+	engine.delta_time_f64 = time - engine.total_time_f64
+	engine.delta_secs = f32(engine.delta_time_f64)
+	engine.total_time_f64 = time
+	engine.total_secs = f32(engine.total_time_f64)
+
 	if glfw.WindowShouldClose(engine.window) || engine.input.keys[.ESCAPE] == .JustPressed {
 		return false
 	}
@@ -133,6 +152,7 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 		_engine_hot_reload_shaders(engine)
 	}
 
+	ui_renderer_start_frame(&engine.ui_renderer, engine.screen_size_f32, &engine.input)
 	return true
 }
 
@@ -145,6 +165,9 @@ _engine_hot_reload_shaders :: proc(engine: ^Engine) {
 		&engine.bloom_renderer.downsample_pipeline,
 		&engine.bloom_renderer.upsample_pipeline,
 		&engine.bloom_renderer.final_upsample_pipeline,
+		&engine.ui_renderer.colored_pipeline,
+		&engine.ui_renderer.textured_pipeline,
+		&engine.ui_renderer.glyph_pipeline,
 	}
 	shader_registry_hot_reload(&engine.shader_registry, pipelines[:])
 }
@@ -160,26 +183,26 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 
 }
 
-// Note: assumes that engine.frame_size already contains the new size from the gltf resize callback
+// Note: assumes that engine.screen_size already contains the new size from the gltf resize callback
 _engine_resize :: proc(engine: ^Engine) {
 	engine.resized = false
 	print("resized:", engine.surface_config)
-	engine.surface_config.width = engine.frame_size.x
-	engine.surface_config.height = engine.frame_size.y
+	engine.surface_config.width = engine.screen_size.x
+	engine.surface_config.height = engine.screen_size.y
 	wgpu.SurfaceConfigure(engine.surface, &engine.surface_config)
 
 	texture_destroy(&engine.hdr_screen_texture)
 	engine.hdr_screen_texture = texture_create(
 		engine.device,
-		engine.frame_size,
+		engine.screen_size,
 		HDR_SCREEN_TEXTURE_SETTINGS,
 	)
 
-	bloom_renderer_resize(&engine.bloom_renderer, engine.frame_size)
+	bloom_renderer_resize(&engine.bloom_renderer, engine.screen_size)
 }
 
 _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
-	screen_size := Vec2{f32(engine.frame_size.x), f32(engine.frame_size.y)}
+	screen_size := engine.screen_size_f32
 	camera_size := Vec2 {
 		scene.camera.y_height / screen_size.y * screen_size.x,
 		scene.camera.y_height,
@@ -190,10 +213,11 @@ _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 		cursor_pos  = cursor_pos,
 		camera_pos  = scene.camera.pos,
 		camera_size = camera_size,
-		time_secs   = f32(engine.total_time),
+		time_secs   = f32(engine.total_time_f64),
 	}
 	uniform_buffer_write(engine.queue, &engine.globals_uniform, &globals)
 	sprite_renderer_prepare(&engine.sprite_renderer, scene.sprites[:])
+	ui_renderer_end_frame_and_prepare_buffers(&engine.ui_renderer, engine.delta_secs)
 }
 
 _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
@@ -255,18 +279,22 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	)
 	defer wgpu.RenderPassEncoderRelease(hdr_pass)
 	sprite_renderer_render(&engine.sprite_renderer, hdr_pass, engine.globals_uniform.bind_group)
+	ui_renderer_render(&engine.ui_renderer, hdr_pass, engine.globals_uniform.bind_group)
 	wgpu.RenderPassEncoderEnd(hdr_pass)
 
 	// /////////////////////////////////////////////////////////////////////////////
 	// SECTION: Tonemapping and Bloom
 	// /////////////////////////////////////////////////////////////////////////////
-	render_bloom(
-		command_encoder,
-		&engine.bloom_renderer,
-		&engine.hdr_screen_texture,
-		engine.globals_uniform.bind_group,
-		engine.settings.bloom_settings,
-	)
+
+	if engine.settings.bloom_enabled {
+		render_bloom(
+			command_encoder,
+			&engine.bloom_renderer,
+			&engine.hdr_screen_texture,
+			engine.globals_uniform.bind_group,
+			engine.settings.bloom_settings,
+		)
+	}
 
 	tonemap(
 		command_encoder,
@@ -301,14 +329,16 @@ _init_glfw_window :: proc(engine: ^Engine) {
 		nil,
 	)
 	w, h := glfw.GetFramebufferSize(engine.window)
-	engine.frame_size = {u32(w), u32(h)}
+	engine.screen_size = {u32(w), u32(h)}
+	engine.screen_size_f32 = {f32(w), f32(h)}
 	glfw.SetWindowUserPointer(engine.window, engine)
 
-	framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
+	framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, w, h: i32) {
 		context = runtime.default_context()
 		engine: ^Engine = auto_cast glfw.GetWindowUserPointer(window)
 		engine.resized = true
-		engine.frame_size = {u32(width), u32(height)}
+		engine.screen_size = {u32(w), u32(h)}
+		engine.screen_size_f32 = {f32(w), f32(h)}
 	}
 	glfw.SetFramebufferSizeCallback(engine.window, framebuffer_size_callback)
 
@@ -318,6 +348,15 @@ _init_glfw_window :: proc(engine: ^Engine) {
 		input_receive_glfw_key_event(&engine.input, key, action)
 	}
 	glfw.SetKeyCallback(engine.window, key_callback)
+
+	cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x_pos, y_pos: f64) {
+		context = runtime.default_context()
+		engine: ^Engine = auto_cast glfw.GetWindowUserPointer(window)
+		engine.input.cursor_pos_f64 = {x_pos, y_pos}
+		engine.input.cursor_pos = {f32(x_pos), f32(y_pos)}
+	}
+	glfw.SetCursorPosCallback(engine.window, cursor_pos_callback)
+
 
 	mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, _mods: i32) {
 		context = runtime.default_context()
@@ -352,7 +391,7 @@ _init_wgpu :: proc(engine: ^Engine) {
 	wgpu.InstanceRequestAdapter(
 		engine.instance,
 		&wgpu.RequestAdapterOptions {
-			powerPreference = wgpu.PowerPreference.HighPerformance,
+			powerPreference = engine.settings.power_preference,
 			compatibleSurface = engine.surface,
 		},
 		proc "c" (
@@ -433,8 +472,8 @@ _init_wgpu :: proc(engine: ^Engine) {
 		viewFormatCount = 1,
 		viewFormats     = &SURFACE_FORMAT,
 		alphaMode       = .Opaque,
-		width           = engine.frame_size.x,
-		height          = engine.frame_size.y,
+		width           = engine.screen_size.x,
+		height          = engine.screen_size.y,
 		presentMode     = .Immediate,
 	}
 

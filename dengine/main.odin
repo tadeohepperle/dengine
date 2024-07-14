@@ -6,19 +6,6 @@ import "core:strings"
 
 import wgpu "vendor:wgpu"
 
-print :: fmt.println
-print_line :: proc(message: string = "") {
-	if message != "" {
-		fmt.printfln(
-			"-------------------- %s ---------------------------------------------",
-			message,
-		)
-	} else {
-		fmt.println("------------------------------------------------------------------------")
-	}
-
-}
-
 main :: proc() {
 	engine: Engine
 	engine_create(&engine, DEFAULT_ENGINE_SETTINGS)
@@ -26,13 +13,16 @@ main :: proc() {
 	scene := scene_create()
 	defer {scene_destroy(scene)}
 
-
-	corn_tex, _ := texture_from_image_path(engine.device, engine.queue, path = "corn.png")
+	corn_tex, _ := texture_from_image_path(engine.device, engine.queue, path = "./assets/corn.png")
 	corn := TextureTile {
 		texture = &corn_tex,
 		uv      = {{0, 0}, {1, 1}},
 	}
-	sprite_tex, err := texture_from_image_path(engine.device, engine.queue, path = "sprite.png")
+	sprite_tex, err := texture_from_image_path(
+		engine.device,
+		engine.queue,
+		path = "./assets/can.png",
+	)
 	sprite := TextureTile {
 		texture = &sprite_tex,
 		uv      = {{0, 0}, {1, 1}},
@@ -42,11 +32,86 @@ main :: proc() {
 		panic("c")
 	}
 
-
 	player_pos := Vec2{0, 0}
 	forest := [?]Vec2{{0, 0}, {2, 0}, {3, 0}, {5, 2}, {6, 3}}
 
 	for engine_start_frame(&engine) {
+
+
+		div(
+			Div {
+				padding = {10, 10, 10, 10},
+				color = color_gray(0.2),
+				width = 1,
+				height = 400,
+				flags = {.WidthFraction, .HeightPx},
+			},
+		)
+		start_children()
+		div(Div{color = Color_White})
+		start_children()
+		text(
+			Text {
+				str       = "Hello! I am Tadeo.\nI would like to buy a sandwich! :)\nThis is gonna be the best day of my li i life, .... saksakslas",
+				// str       = "What is this?\nHello I want to buy a big fat sandwich, I want to buy a big fat sandwich, I want to buy a big fat sandwich, I want to buy a big fat sandwich, ",
+				font_size = 24.0,
+				shadow    = 0.4,
+				color     = Color_White,
+			},
+		)
+		end_children()
+
+		@(thread_local)
+		value: f32
+		slider(&value, 0, 1)
+
+		@(thread_local)
+		open: bool
+		button("The first button", "btn2")
+		btn := button("Click me!", "btn1")
+		if btn.just_pressed {
+			open = !open
+			print("just_pressed")
+		}
+		if btn.just_released {
+			print("just_released")
+		}
+
+		toggle(&open, "show panel")
+		if open {
+			div(Div{padding = {10, 10, 10, 10}, color = Color_Yellow})
+			start_children()
+			text(Text{str = "Hello!", font_size = 100, color = Color_White})
+			end_children()
+		}
+
+		div(
+			Div {
+				color = Color_Green,
+				width = 400,
+				height = 300,
+				flags = {.WidthPx, .HeightPx, .Absolute},
+				absolute_unit_pos = {1, 0.5},
+				padding = {left = 20},
+				border_color = Color_White,
+				border_width = 50,
+				border_radius = {
+					top_left = 120,
+					bottom_left = 30,
+					top_right = 30,
+					bottom_right = 60,
+				},
+				offset = Vec2{-100, 0},
+			},
+		)
+
+		end_children()
+
+		window("Hello")
+		red_box()
+		end_children()
+
+
 		append(
 			&scene.sprites,
 			Sprite {
@@ -65,7 +130,7 @@ main :: proc() {
 					texture = corn,
 					pos = pos,
 					size = {1, 2},
-					rotation = math.cos(f32(i) + f32(engine.total_time)),
+					rotation = math.cos(f32(i) + engine.total_secs),
 					color = Color_White,
 				},
 			)
@@ -76,18 +141,13 @@ main :: proc() {
 		// 	Sprite{texture = corn, pos = {0, 0}, size = {1, 1}, rotation = 0, color = Color_Aqua},
 		// )
 
-		if engine.input.keys[.SPACE] == .Pressed {
-			engine.settings.tonemapping = .Aces
-		} else {
-			engine.settings.tonemapping = .Disabled
-		}
-
+		engine.settings.bloom_enabled = engine.input.keys[.SPACE] == .Pressed
 		keys := [?]Key{.LEFT, .RIGHT, .UP, .DOWN}
 		directions := [?]Vec2{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
 		for k, i in keys {
 			if engine.input.keys[k] == .Pressed {
-				player_pos += directions[i] * 20 * f32(engine.delta_time)
+				player_pos += directions[i] * 20 * engine.delta_secs
 			}
 		}
 

@@ -4,9 +4,10 @@ import "vendor:glfw"
 import "core:fmt"
 
 Input :: struct {
-	cursor_pos:    [2]f64,
-	keys:          #sparse[Key]KeyState,
-	mouse_buttons: [MouseButton]KeyState,
+	cursor_pos_f64: [2]f64,
+	cursor_pos:     [2]f32,
+	keys:           #sparse[Key]KeyState,
+	mouse_buttons:  [MouseButton]KeyState,
 }
 
 KeyState :: enum u8 {

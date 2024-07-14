@@ -433,11 +433,6 @@ text_from_string :: proc(text: string) {
 
 }
 
-set_default_font :: proc(font: Font, color: Color, size: f32) {
-	UI_MEMORY.default_font = font
-	UI_MEMORY.default_font_color = color
-	UI_MEMORY.default_font_size = size
-}
 
 default_font_is_not_set :: #force_inline proc() -> bool {
 	return &UI_MEMORY.default_font.texture == nil
@@ -1332,6 +1327,8 @@ clear_batches :: proc(batches: ^UiBatches) {
 }
 
 UiRenderer :: struct {
+	device:                wgpu.Device,
+	queue:                 wgpu.Queue,
 	colored_pipeline:      RenderPipeline,
 	textured_pipeline:     RenderPipeline,
 	glyph_pipeline:        RenderPipeline,
@@ -1342,31 +1339,7 @@ UiRenderer :: struct {
 	cache:                 UiCache,
 }
 
-ui_end_frame_and_prepare_buffers :: proc(
-	renderer: ^UiRenderer,
-	device: wgpu.Device,
-	queue: wgpu.Queue,
-	screen_size: UVec2,
-	delta_secs: f32,
-) {
-	// no matter the 
-	layout_size := Vec2 {
-		f32(SCREEN_REFERENCE_SIZE.y) * f32(screen_size.x) / f32(screen_size.y),
-		f32(SCREEN_REFERENCE_SIZE.y),
-	}
-
-	ui_end_frame(&renderer.batches, layout_size, delta_secs)
-	dynamic_buffer_write(&renderer.vertex_buffer, renderer.batches.vertices[:], device, queue)
-	dynamic_buffer_write(&renderer.index_buffer, renderer.batches.indices[:], device, queue)
-	dynamic_buffer_write(
-		&renderer.glyph_instance_buffer,
-		renderer.batches.glyphs_instances[:],
-		device,
-		queue,
-	)
-}
-
-render_ui :: proc(
+ui_renderer_render :: proc(
 	rend: ^UiRenderer,
 	render_pass: wgpu.RenderPassEncoder,
 	globals_bind_group: wgpu.BindGroup,
@@ -1440,13 +1413,49 @@ render_ui :: proc(
 	}
 }
 
+ui_renderer_start_frame :: proc(rend: ^UiRenderer, screen_size: Vec2, input: ^Input) {
+	cache := &rend.cache
+	cache.mouse_buttons = input.mouse_buttons
+	scale_factor := f32(SCREEN_REFERENCE_SIZE.y) / screen_size.y
+	cache.layout_extent = Vec2 {
+		f32(SCREEN_REFERENCE_SIZE.y) * screen_size.x / screen_size.y,
+		f32(SCREEN_REFERENCE_SIZE.y),
+	}
+	cache.cursor_pos = Vec2 {
+		f32(input.cursor_pos.x) * scale_factor,
+		f32(input.cursor_pos.y) * scale_factor,
+	}
+	ui_start_frame(cache)
+}
+
+ui_renderer_end_frame_and_prepare_buffers :: proc(rend: ^UiRenderer, delta_secs: f32) {
+	ui_end_frame(&rend.batches, rend.cache.layout_extent, delta_secs)
+	dynamic_buffer_write(&rend.vertex_buffer, rend.batches.vertices[:], rend.device, rend.queue)
+	dynamic_buffer_write(&rend.index_buffer, rend.batches.indices[:], rend.device, rend.queue)
+	dynamic_buffer_write(
+		&rend.glyph_instance_buffer,
+		rend.batches.glyphs_instances[:],
+		rend.device,
+		rend.queue,
+	)
+}
+
 ui_renderer_create :: proc(
 	rend: ^UiRenderer,
 	device: wgpu.Device,
 	queue: wgpu.Queue,
 	reg: ^ShaderRegistry,
 	globals_layout: wgpu.BindGroupLayout,
+	default_font_path: string,
+	default_font_color: Color,
+	default_font_size: f32,
 ) {
+	if default_font_path == "" {
+		panic("No default font specified in engine settings!")
+	}
+
+	rend.device = device
+	rend.queue = queue
 	rend.colored_pipeline.config = ui_colored_pipeline_config(device, globals_layout)
 	render_pipeline_create_panic(&rend.colored_pipeline, device, reg)
 
@@ -1456,12 +1465,21 @@ ui_renderer_create :: proc(
 	rend.glyph_pipeline.config = ui_glyph_pipeline_config(device, globals_layout)
 	render_pipeline_create_panic(&rend.glyph_pipeline, device, reg)
 
+
+	print(default_font_path)
+	font, err := font_create(default_font_path, device, queue)
+	if err != nil {
+		fmt.panicf("Could not load font from: %s", default_font_path)
+	}
+	UI_MEMORY.default_font = font
+	UI_MEMORY.default_font_color = default_font_color
+	UI_MEMORY.default_font_size = default_font_size
+
 	rend.vertex_buffer.usage = {.Vertex}
 	rend.index_buffer.usage = {.Index}
 	rend.glyph_instance_buffer.usage = {.Vertex}
 	return
 }
-
 
 ui_colored_pipeline_config :: proc(
 	device: wgpu.Device,
@@ -1480,6 +1498,7 @@ ui_colored_pipeline_config :: proc(
 				{format = .Float32x2, offset = offset_of(UiVertex, pos)},
 				{format = .Float32x2, offset = offset_of(UiVertex, normal)},
 				{format = .Float32x4, offset = offset_of(UiVertex, color)},
+				{format = .Float32x2, offset = offset_of(UiVertex, uv)},
 			},
 		},
 		instance = {},
@@ -1555,6 +1574,7 @@ ui_renderer_destroy :: proc(rend: ^UiRenderer) {
 	dynamic_buffer_destroy(&rend.vertex_buffer)
 	dynamic_buffer_destroy(&rend.index_buffer)
 	dynamic_buffer_destroy(&rend.glyph_instance_buffer)
+	font_destroy(&UI_MEMORY.default_font)
 }
 
 ui_batches_destroy :: proc(batches: ^UiBatches) {
