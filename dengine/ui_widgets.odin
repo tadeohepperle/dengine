@@ -82,6 +82,9 @@ toggle :: proc(value: ^bool, title: string) {
 
 
 slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
+	slider_width: f32 = 200
+	knob_width: f32 = 24
+
 	cache: ^UiCache = UI_MEMORY.cache
 	id := u64(uintptr(value))
 	val: f32 = value^
@@ -89,26 +92,30 @@ slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 	f := val - min / max - min
 	res := ui_button_interaction(id)
 	if res.just_pressed {
+		cached_div := cache.cached[id]
+		print(cached_div.pos, cached_div.size)
+		f =
+			(cache.cursor_pos.x - knob_width / 2 - cached_div.pos.x) /
+			(cached_div.size.x - knob_width)
+		print(f)
+		val = min + f * (max - min)
 		cache.active_value.slider_value_start_drag = val
-	}
-	slider_width: f32 = 200
-	knob_width: f32 = 24
-
-	if res.is_pressed {
+	} else if res.is_pressed {
 		cursor_x := cache.cursor_pos.x
 		cursor_x_start_active := cache.cursor_pos_start_active.x
 		f_shift := (cursor_x - cursor_x_start_active) / (slider_width - knob_width)
 		start_f := (cache.active_value.slider_value_start_drag - min) / (max - min)
 		f = start_f + f_shift
+		if f < 0 {
+			f = 0
+		}
+		if f > 1 {
+			f = 1
+		}
+		val = min + f * (max - min)
+		value^ = val
 	}
-	if f < 0 {
-		f = 0
-	}
-	if f > 1 {
-		f = 1
-	}
-	val = min + f * (max - min)
-	value^ = val
+
 	div(
 		Div {
 			id = id,
