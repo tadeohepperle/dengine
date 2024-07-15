@@ -38,7 +38,7 @@ DEFAULT_ENGINE_SETTINGS :: EngineSettings {
 	title              = "Odin Engine",
 	initial_size       = {800, 600},
 	tonemapping        = .Disabled,
-	clear_color        = {0.001, 0.001, 0.002, 1.0},
+	clear_color        = {0.1, 0.1, 0.2, 1.0},
 	bloom_enabled      = false,
 	bloom_settings     = DEFAULT_BLOOM_SETTINGS,
 	default_font_path  = "assets/marko_one_regular",
@@ -165,8 +165,7 @@ _engine_hot_reload_shaders :: proc(engine: ^Engine) {
 		&engine.bloom_renderer.downsample_pipeline,
 		&engine.bloom_renderer.upsample_pipeline,
 		&engine.bloom_renderer.final_upsample_pipeline,
-		&engine.ui_renderer.colored_pipeline,
-		&engine.ui_renderer.textured_pipeline,
+		&engine.ui_renderer.rect_pipeline,
 		&engine.ui_renderer.glyph_pipeline,
 	}
 	shader_registry_hot_reload(&engine.shader_registry, pipelines[:])

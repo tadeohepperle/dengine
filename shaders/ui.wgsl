@@ -4,8 +4,6 @@
 var t_diffuse: texture_2d<f32>;
 @group(1) @binding(1)
 var s_diffuse: sampler;
-
-
 const SCREEN_REFERENCE_SIZE: vec2<f32> = vec2<f32>(1920, 1080);
 fn screen_size_r() -> vec2<f32> {
 	return vec2(SCREEN_REFERENCE_SIZE.y * globals.screen_size.x / globals.screen_size.y, SCREEN_REFERENCE_SIZE.y);
@@ -20,57 +18,114 @@ struct GlyphInstance {
 }
 
 struct Vertex {
-	@location(0) pos:     vec2<f32>,
-	@location(1) normal:  vec2<f32>,
-	@location(2) color:  vec4<f32>,
-	@location(3) uv:     vec2<f32>,
+	@location(0) pos:           vec2<f32>,
+	@location(1) size:          vec2<f32>,
+	@location(2) uv:            vec2<f32>,
+	@location(3) color:         vec4<f32>,
+	@location(4) border_color:  vec4<f32>,
+	@location(5) border_radius: vec4<f32>, // top left, top right, bottom right, bottom left
+	@location(6) border_width: vec4<f32>, // todo!
+	@location(7) flags: u32,
 }
 
-struct VsColoredOut {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-}
+// Vertex flags:
+const TEXTURED: u32 = 1u;
+const RIGHT_VERTEX: u32 = 2u;
+const BOTTOM_VERTEX: u32 = 4u;
+const BORDER: u32 = 8u;
 
 @vertex
-fn vs_colored(vertex: Vertex) -> VsColoredOut {
+fn vs_rect(vertex: Vertex) -> VsRectOut {
 	let screen_size_r = vec2(SCREEN_REFERENCE_SIZE.y * globals.screen_size.x / globals.screen_size.y, SCREEN_REFERENCE_SIZE.y);
-	var out: VsColoredOut;
+	var out: VsRectOut;
 	out.clip_position = vec4(vertex.pos / screen_size_r * 2.0  -1.0, 0.0, 1.0);
+	var rel_pos = 0.5 * vertex.size;
+    if (vertex.flags & RIGHT_VERTEX) == 0u {
+        rel_pos.y *= -1.;
+    }
+    if (vertex.flags & BOTTOM_VERTEX) == 0u {
+        rel_pos.x *= -1.;
+    }
+    out.rel_pos = rel_pos;
+	out.size = vertex.size;
 	out.color = vertex.color;
+	out.border_color = vertex.border_color;
+	out.border_radius = vertex.border_radius;
+	out.border_width = vertex.border_width;
+	out.flags = vertex.flags;
 	return out;
 }
 
+//  @interpolate(flat)
+
+struct VsRectOut {
+    @builtin(position) clip_position:              vec4<f32>,
+    @location(0) rel_pos:                          vec2<f32>, // pos relative to center of rect with size.
+	@location(1) size:          vec2<f32>, 
+	@location(2) uv:                               vec2<f32>,
+	@location(3) color:                            vec4<f32>,
+	@location(4) border_color:                     vec4<f32>,
+    @location(5) border_radius: vec4<f32>, // top left, top right, bottom right, bottom left
+	@location(6) border_width:  vec4<f32>, // todo!
+	@location(7) flags:         u32,
+}
+
+// @interpolate(flat) 
+// @interpolate(flat) 
+// @interpolate(flat) 
+
+const softness :f32 = 0.8;
+
 @fragment
-fn fs_colored(in: VsColoredOut) -> @location(0) vec4<f32> {
-	return in.color;
+fn fs_rect(in: VsRectOut) -> @location(0) vec4<f32> {
+	let texture_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.uv);
+    let external_distance = rounded_box_sdf(in.rel_pos, in.size, in.border_radius);
+    let internal_distance = inset_rounded_box_sdf(in.rel_pos, in.size, in.border_radius, in.border_width);
+	let not_ext_factor = smoothstep(softness,-softness, external_distance);  // antialias(external_distance); //select(1.0 - step(0.0, border_distance), antialias(border_distance), external_distance < internal_distance);
+	let in_factor = smoothstep(-softness,softness, internal_distance);
+
+	let color  = mix(in.color, in.border_color, in_factor);
+	let t_color = select(color, color * texture_color, enabled(in.flags, TEXTURED));
+		
+	return vec4(t_color.rgb, saturate(color.a * not_ext_factor));
 }
 
-struct VsTexturedOut {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) uv: vec2<f32>,
+fn enabled(flags: u32, mask: u32) -> bool {
+    return (flags & mask) != 0u;
 }
 
-@vertex
-fn vs_textured(vertex: Vertex) -> VsTexturedOut {
-	var out: VsTexturedOut;
-	out.clip_position = vec4(vertex.pos / screen_size_r() * 2.0  -1.0, 0.0, 1.0);
-	out.color = vertex.color;
-	out.uv = vertex.uv;
-  	return out;
+fn rounded_box_sdf(offset: vec2<f32>, size: vec2<f32>, border_radius: vec4<f32>) -> f32 {
+    let r = select(border_radius.xw, border_radius.yz, offset.x > 0.0);
+    let r2 = select(r.x, r.y, offset.y > 0.0);
+    let q: vec2<f32> = abs(offset) - size / 2.0 + vec2<f32>(r2);
+    let q2: f32 = min(max(q.x, q.y), 0.0);
+    let l = length(max(q, vec2(0.0)));
+    return q2 + l - r2;
 }
 
-@fragment
-fn fs_textured(in: VsTexturedOut) -> @location(0) vec4<f32> {
-	return vec4<f32>(1.0);
+fn inset_rounded_box_sdf(rel_pos: vec2<f32>, size: vec2<f32>, radius: vec4<f32>, inset: vec4<f32>) -> f32 {
+    let inner_size = size - inset.xy - inset.zw;
+    let inner_center = inset.xy + 0.5 * inner_size - 0.5 * size;
+    let inner_point = rel_pos - inner_center;
+    var r: vec4<f32> = radius;
+    r.x = r.x - max(inset.x, inset.y); // top left corner
+    r.y = r.y - max(inset.z, inset.y); // top right corner 
+    r.z = r.z - max(inset.z, inset.w); // bottom right corner
+    r.w = r.w - max(inset.x, inset.w); // bottom left corner
+    let half_size = inner_size * 0.5;
+    let min_size = min(half_size.x, half_size.y);
+    r = min(max(r, vec4(0.0)), vec4<f32>(min_size));
+    return rounded_box_sdf(inner_point, inner_size, r);
 }
 
-struct VsGlyphOut {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) shadow_intensity: f32,
+// get alpha for antialiasing for sdf
+fn antialias(distance: f32) -> f32 {
+    return clamp(0.0, 1.0, 0.5 - 2.0 * distance);
 }
+
+// /////////////////////////////////////////////////////////////////////////////
+// SECTION: Glyphs
+// /////////////////////////////////////////////////////////////////////////////
 
 @vertex
 fn vs_glyph(@builtin(vertex_index) vertex_index: u32, instance: GlyphInstance) -> VsGlyphOut {
@@ -83,6 +138,13 @@ fn vs_glyph(@builtin(vertex_index) vertex_index: u32, instance: GlyphInstance) -
 	out.uv = uv;
 	out.shadow_intensity = instance.shadow; 
 	return out;
+}
+
+struct VsGlyphOut {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) shadow_intensity: f32,
 }
 
 @fragment

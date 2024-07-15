@@ -127,28 +127,30 @@ UiGlyphInstance :: struct {
 	shadow: f32,
 }
 
+UI_VERTEX_FLAG_TEXTURED :: 1
+UI_VERTEX_FLAG_RIGHT_VERTEX :: 2
+UI_VERTEX_FLAG_BOTTOM_VERTEX :: 4
+
 UiVertex :: struct {
-	pos:    Vec2,
-	normal: Vec2,
-	color:  Color,
-	uv:     Vec2,
+	pos:           Vec2,
+	size:          Vec2, // size of the rect this is part of
+	uv:            Vec2,
+	color:         Color,
+	border_color:  Color,
+	border_radius: BorderRadius,
+	border_width:  BorderWidth,
+	flags:         u32,
 }
 
 UiBatch :: struct {
 	start_idx: int,
 	end_idx:   int,
 	kind:      UiBatchKind,
-	data:      UiBatchData,
-}
-
-UiBatchData :: struct #raw_union {
-	ptr:     rawptr,
-	texture: ^Texture,
+	texture:   ^Texture,
 }
 
 UiBatchKind :: enum {
-	Colored,
-	Textured,
+	Rect,
 	Glyph,
 }
 
@@ -205,7 +207,7 @@ Div :: struct {
 	id:                UI_ID,
 	texture:           TextureTile,
 	border_radius:     BorderRadius,
-	border_width:      f32,
+	border_width:      BorderWidth,
 	border_color:      Color,
 	animation_speed:   f32, //   (lerp speed)
 }
@@ -222,6 +224,13 @@ BorderRadius :: struct {
 	top_right:    f32,
 	bottom_right: f32,
 	bottom_left:  f32,
+}
+
+BorderWidth :: struct {
+	top:    f32,
+	left:   f32,
+	bottom: f32,
+	right:  f32,
 }
 
 Text :: struct {
@@ -954,55 +963,44 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	// define helper functions:
 	/////////////////////////////////
 
-	element_batch_kind_and_data :: #force_inline proc(
+	element_batch_kind_and_texture :: #force_inline proc(
 		element: ^UiElement,
 	) -> (
 		kind: UiBatchKind,
-		data: UiBatchData,
+		texture: ^Texture,
 	) {
 		switch element in element {
 		case DivWithComputed:
-			if element.texture.texture == nil {
-				kind = .Colored
-				data = UiBatchData {
-					ptr = nil,
-				}
-			} else {
-				kind = .Textured
-				data = UiBatchData {
-					texture = element.texture.texture,
-				}
-			}
+			kind = .Rect
+			texture = element.texture.texture // can be nil for untextured ones...
 		case TextWithComputed:
 			kind = .Glyph
-			data = UiBatchData {
-				texture = element.font.texture,
-			}
+			texture = element.font.texture
 		}
 		return
 	}
 
 	new_batch :: #force_inline proc(
 		kind: UiBatchKind,
-		data: UiBatchData,
+		texture: ^Texture,
 		batches: ^UiBatches,
 	) -> (
 		batch: UiBatch,
 	) {
 		switch kind {
-		case .Colored, .Textured:
+		case .Rect:
 			batch = UiBatch {
 				start_idx = len(batches.indices),
 				end_idx   = -1,
 				kind      = kind,
-				data      = data,
+				texture   = texture,
 			}
 		case .Glyph:
 			batch = UiBatch {
 				start_idx = len(batches.glyphs_instances),
 				end_idx   = -1,
 				kind      = .Glyph,
-				data      = data,
+				texture   = texture,
 			}
 		}
 		return
@@ -1010,7 +1008,7 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 
 	end_batch :: #force_inline proc(batch: ^UiBatch, batches: ^UiBatches) {
 		switch batch.kind {
-		case .Colored, .Textured:
+		case .Rect:
 			batch.end_idx = len(batches.indices)
 		case .Glyph:
 			batch.end_idx = len(batches.glyphs_instances)
@@ -1018,262 +1016,63 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 		return
 	}
 
-	// expects that there are `num_vertices` starting from `start_vertex` that form a convex hull
-	add_fan_fill_indices :: #force_inline proc(
-		indices: ^[dynamic]u32,
-		start_vertex: u32,
-		num_vertices: u32,
-	) {
-		start_vertex := u32(start_vertex)
-		num_vertices := u32(num_vertices)
-		for i in 1 ..< num_vertices - 1 {
-			append(indices, start_vertex)
-			append(indices, start_vertex + i)
-			append(indices, start_vertex + i + 1)
-		}
-	}
-
-	CornerFlags :: bit_set[CornerFlag]
-	CornerFlag :: enum {
-		TopLeft,
-		TopRight,
-		BottomRight,
-		BottomLeft,
-	}
-	add_fill_border_indices_by_connecting_inner_and_outer_vertices :: #force_inline proc(
-		indices: ^[dynamic]u32,
-		inner_start_vertex: u32,
-		inner_corners_with_radius: CornerFlags,
-		outer_start_vertex: u32,
-		outer_corners_with_radius: CornerFlags,
-	) {
-
-
-		i := inner_start_vertex
-		o := outer_start_vertex
-
-		CornerMode :: enum {
-			None,
-			Fan,
-			Strip,
-		}
-
-
-		corner_mode :: #force_inline proc(outer_corner: bool, inner_corner: bool) -> CornerMode {
-			if outer_corner {
-				if inner_corner {
-					return .Strip
-				} else {
-					return .Fan
-				}
-			} else {
-				return .None
-			}
-		}
-
-
-		corners := [4]CornerMode {
-			corner_mode(
-				.TopLeft in outer_corners_with_radius,
-				.TopLeft in inner_corners_with_radius,
-			),
-			corner_mode(
-				.TopRight in outer_corners_with_radius,
-				.TopRight in inner_corners_with_radius,
-			),
-			corner_mode(
-				.BottomRight in outer_corners_with_radius,
-				.BottomRight in inner_corners_with_radius,
-			),
-			corner_mode(
-				.BottomLeft in outer_corners_with_radius,
-				.BottomLeft in inner_corners_with_radius,
-			),
-		}
-
-		corner_i := 0
-		for mode in corners {
-
-			switch mode {
-			case .None:
-			case .Fan:
-				// fan from 1 inner vertex to multiple outer ones:
-				for _ in 0 ..< BORDER_VERTICES - 1 {
-					append(indices, i)
-					append(indices, o)
-					append(indices, o + 1)
-					o += 1
-				}
-			case .Strip:
-				// fill quads between the two circle arc points
-				for _ in 0 ..< BORDER_VERTICES - 1 {
-					append(indices, i)
-					append(indices, o)
-					append(indices, i + 1)
-					append(indices, o)
-					append(indices, o + 1)
-					append(indices, i + 1)
-					i += 1
-					o += 1
-				}
-			}
-			// add a quad on a side:
-			if corner_i == 3 {
-				// loop back to start
-				append(indices, i)
-				append(indices, o)
-				append(indices, inner_start_vertex)
-				append(indices, o)
-				append(indices, outer_start_vertex)
-				append(indices, inner_start_vertex)
-			} else {
-				corner_i += 1
-				append(indices, i)
-				append(indices, o)
-				append(indices, i + 1)
-				append(indices, o)
-				append(indices, o + 1)
-				append(indices, i + 1)
-				i += 1
-				o += 1
-			}
-		}
-	}
-
-	BORDER_VERTICES :: 8
-	add_border_vertices :: #force_inline proc(
-		$ZERO_NORMALS: bool,
-		vertices: ^[dynamic]UiVertex,
-		pos: Vec2,
-		size: Vec2,
-		uv: Aabb,
-		color: Color,
-		border_radius: BorderRadius,
-	) -> (
-		corners_with_radius: CornerFlags,
-	) {
-
-		ANGLE :: math.PI / 2 / f32(BORDER_VERTICES - 1)
-
-		tl_uv := uv.min
-		tr_uv := Vec2{uv.max.x, uv.min.y}
-		br_uv := uv.max.x
-		bl_uv := Vec2{uv.min.x, uv.max.y}
-
-		tl_pos := pos
-		tr_pos := Vec2{pos.x + size.x, pos.y}
-		br_pos := pos + size
-		bl_pos := Vec2{pos.x, pos.y + size.y}
-
-		NORMAL_TL :: Vec2{-math.SQRT_TWO / 2, -math.SQRT_TWO / 2}
-		NORMAL_TR :: Vec2{math.SQRT_TWO / 2, -math.SQRT_TWO / 2}
-		NORMAL_BR :: Vec2{math.SQRT_TWO / 2, math.SQRT_TWO / 2}
-		NORMAL_BL :: Vec2{-math.SQRT_TWO / 2, math.SQRT_TWO / 2}
-		ZERO :: Vec2{0, 0}
-		if border_radius.top_left == 0 {
-			append(vertices, UiVertex{pos, ZERO when ZERO_NORMALS else NORMAL_TL, color, tl_uv})
-		} else {
-			corners_with_radius += {.TopLeft}
-			radius := border_radius.top_left
-			in_pos := tl_pos + radius
-			for i in 0 ..< BORDER_VERTICES {
-				a := f32(i) * ANGLE
-				c_off := Vec2{-math.cos(a), -math.sin(a)}
-				pos := in_pos + c_off * radius
-				append(vertices, UiVertex{pos, ZERO when ZERO_NORMALS else c_off, color, tl_uv})
-			}
-		}
-		if border_radius.top_right == 0 {
-			append(vertices, UiVertex{tr_pos, ZERO when ZERO_NORMALS else NORMAL_TR, color, tr_uv})
-		} else {
-			corners_with_radius += {.TopRight}
-			radius := border_radius.top_right
-			in_pos := Vec2{tr_pos.x - radius, tr_pos.y + radius}
-			for i in 0 ..< BORDER_VERTICES {
-				a := f32(i) * ANGLE
-				c_off := Vec2{math.sin(a), -math.cos(a)}
-				pos := in_pos + c_off * radius
-				append(vertices, UiVertex{pos, ZERO when ZERO_NORMALS else c_off, color, tr_uv})
-			}
-		}
-		if border_radius.bottom_right == 0 {
-			append(vertices, UiVertex{br_pos, ZERO when ZERO_NORMALS else NORMAL_BR, color, br_uv})
-		} else {
-			corners_with_radius += {.BottomRight}
-			radius := border_radius.bottom_right
-			in_pos := br_pos - radius
-			for i in 0 ..< BORDER_VERTICES {
-				a := f32(i) * ANGLE
-				c_off := Vec2{math.cos(a), math.sin(a)}
-				pos := in_pos + c_off * radius
-				append(vertices, UiVertex{pos, ZERO when ZERO_NORMALS else c_off, color, br_uv})
-			}
-		}
-		if border_radius.bottom_left == 0 {
-			append(vertices, UiVertex{bl_pos, ZERO when ZERO_NORMALS else NORMAL_BL, color, tr_uv})
-		} else {
-			corners_with_radius += {.BottomLeft}
-			radius := border_radius.bottom_left
-			in_pos := Vec2{bl_pos.x + radius, bl_pos.y - radius}
-			for i in 0 ..< BORDER_VERTICES {
-				a := f32(i) * ANGLE
-				c_off := Vec2{-math.sin(a), math.cos(a)}
-				pos := in_pos + c_off * radius
-				append(vertices, UiVertex{pos, ZERO when ZERO_NORMALS else c_off, color, tr_uv})
-			}
-		}
-		return
-	}
-
 	add_primitives :: #force_inline proc(element: ^UiElement, batches: ^UiBatches) {
 		switch &e in element {
 		case DivWithComputed:
-			if e.color == {0, 0, 0, 0} {
+			if e.color == {0, 0, 0, 0} || e.size.x == 0 || e.size.y == 0 {
 				return
 			}
 
-			inner_border_radius := BorderRadius {
-				top_left     = max(e.border_radius.top_left - e.border_width, 0),
-				top_right    = max(e.border_radius.top_right - e.border_width, 0),
-				bottom_right = max(e.border_radius.bottom_right - e.border_width, 0),
-				bottom_left  = max(e.border_radius.bottom_left - e.border_width, 0),
-			}
-			inner_start_vertex := len(batches.vertices)
-			inner_corners_with_radius := add_border_vertices(
-				true,
-				&batches.vertices,
-				e.pos + e.border_width,
-				e.size - e.border_width * 2,
-				e.texture.uv,
-				e.color,
-				inner_border_radius,
-			)
-			num_inner_vertices := len(batches.vertices) - inner_start_vertex
-			add_fan_fill_indices(
-				&batches.indices,
-				u32(inner_start_vertex),
-				u32(num_inner_vertices),
-			)
-			if e.border_width != 0 {
-				outer_start_vertex := len(batches.vertices)
-				outer_corners_with_radius := add_border_vertices(
-					false,
-					&batches.vertices,
-					e.pos,
-					e.size,
-					e.texture.uv,
-					e.border_color,
-					e.border_radius,
-				)
-				add_fill_border_indices_by_connecting_inner_and_outer_vertices(
-					&batches.indices,
-					u32(inner_start_vertex),
-					inner_corners_with_radius,
-					u32(outer_start_vertex),
-					outer_corners_with_radius,
-				)
+			vertices := &batches.vertices
+			indices := &batches.indices
+			start_v := u32(len(vertices))
+
+			flags_all: u32 = 0
+			if e.texture.texture != nil {
+				flags_all |= UI_VERTEX_FLAG_TEXTURED
 			}
 
+			min_border_radius := min(e.size.x, e.size.y) / 2.0
+			if e.border_radius.top_left > min_border_radius {
+				e.border_radius.top_left = min_border_radius
+			}
+			if e.border_radius.top_right > min_border_radius {
+				e.border_radius.top_right = min_border_radius
+			}
+			if e.border_radius.bottom_right > min_border_radius {
+				e.border_radius.bottom_right = min_border_radius
+			}
+			if e.border_radius.bottom_left > min_border_radius {
+				e.border_radius.bottom_left = min_border_radius
+			}
+
+			vertex := UiVertex {
+				pos           = e.pos,
+				size          = e.size,
+				uv            = e.texture.uv.min,
+				color         = e.color,
+				border_color  = e.border_color,
+				border_radius = e.border_radius,
+				border_width  = e.border_width,
+				flags         = flags_all,
+			}
+			append(vertices, vertex)
+			vertex.pos = {e.pos.x, e.pos.y + e.size.y}
+			vertex.flags = flags_all | UI_VERTEX_FLAG_RIGHT_VERTEX
+			append(vertices, vertex)
+			vertex.pos = e.pos + e.size
+			vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX | UI_VERTEX_FLAG_RIGHT_VERTEX
+			append(vertices, vertex)
+			vertex.pos = {e.pos.x + e.size.x, e.pos.y}
+			vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX
+			append(vertices, vertex)
+
+			append(indices, start_v)
+			append(indices, start_v + 1)
+			append(indices, start_v + 2)
+			append(indices, start_v)
+			append(indices, start_v + 2)
+			append(indices, start_v + 3)
 
 		case TextWithComputed:
 			for g in UI_MEMORY.glyphs[e.glyphs_start_idx:e.glyphs_end_idx] {
@@ -1298,25 +1097,62 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	if UI_MEMORY.elements_len == 0 {
 		return
 	}
-	first_kind, first_data := element_batch_kind_and_data(&UI_MEMORY.elements[0])
+	first_kind, first_texture := element_batch_kind_and_texture(&UI_MEMORY.elements[0])
 	current_batch := UiBatch {
 		start_idx = 0,
 		end_idx   = -1,
 		kind      = first_kind,
-		data      = first_data,
+		texture   = first_texture,
 	}
 	for i in 0 ..< UI_MEMORY.elements_len {
 		element := &UI_MEMORY.elements[i]
-		kind, data := element_batch_kind_and_data(element)
-		if kind != current_batch.kind || data.ptr != current_batch.data.ptr {
+		kind, texture := element_batch_kind_and_texture(element)
+
+
+		// in case where we are in a rect batch where the current elements all have nil texture, but this one has a texture,
+		// we can still keep them in one batch, but update the batches texture pointer.
+		// the information which rect should sample the texture and which should not is available per vertex via flag TEXTURED.
+		switch &e in element {
+		case DivWithComputed:
+			if e.texture.texture != nil &&
+			   current_batch.kind == .Rect &&
+			   current_batch.texture == nil {
+				current_batch.texture = e.texture.texture
+			}
+		case TextWithComputed:
+		}
+
+		// allow rects with nil texture and some texture in the same batch, specify if rect is textureless on a per-vertex basis.
+		incompatible :=
+			kind != current_batch.kind || (texture != nil && texture != current_batch.texture)
+
+		if incompatible {
 			end_batch(&current_batch, batches)
-			append(&batches.batches, current_batch)
-			current_batch = new_batch(kind, data, batches)
+
+
+			// handle empty batches differently: 
+			// if last batch before empty batch actually fits again, pop it and put it as current batch again
+			// (the empty batch would otherwise create a hole between two matching batches)
+			if current_batch.start_idx != current_batch.end_idx {
+				// 99% normal case:
+				append(&batches.batches, current_batch)
+				current_batch = new_batch(kind, texture, batches)
+			} else {
+				// current batch is empty: 
+				batches_len := len(batches.batches)
+				if batches_len != 0 && batches.batches[batches_len - 1].kind == kind {
+					current_batch = pop(&batches.batches)
+				} else {
+					current_batch = new_batch(kind, texture, batches)
+				}
+			}
 		}
 		add_primitives(element, batches)
 	}
 	end_batch(&current_batch, batches)
-	append(&batches.batches, current_batch)
+	if current_batch.start_idx != current_batch.end_idx {
+		append(&batches.batches, current_batch)
+	}
 }
 
 clear_batches :: proc(batches: ^UiBatches) {
@@ -1329,14 +1165,14 @@ clear_batches :: proc(batches: ^UiBatches) {
 UiRenderer :: struct {
 	device:                wgpu.Device,
 	queue:                 wgpu.Queue,
-	colored_pipeline:      RenderPipeline,
-	textured_pipeline:     RenderPipeline,
+	rect_pipeline:         RenderPipeline,
 	glyph_pipeline:        RenderPipeline,
 	batches:               UiBatches,
 	vertex_buffer:         DynamicBuffer(UiVertex),
 	index_buffer:          DynamicBuffer(u32),
 	glyph_instance_buffer: DynamicBuffer(UiGlyphInstance),
 	cache:                 UiCache,
+	white_px_texture:      Texture,
 }
 
 ui_renderer_render :: proc(
@@ -1354,10 +1190,8 @@ ui_renderer_render :: proc(
 		if batch.kind != last_kind || pipeline == nil {
 			last_kind = batch.kind
 			switch batch.kind {
-			case .Colored:
-				pipeline = &rend.colored_pipeline
-			case .Textured:
-				pipeline = &rend.textured_pipeline
+			case .Rect:
+				pipeline = &rend.rect_pipeline
 			case .Glyph:
 				pipeline = &rend.glyph_pipeline
 			}
@@ -1365,7 +1199,7 @@ ui_renderer_render :: proc(
 			wgpu.RenderPassEncoderSetPipeline(render_pass, pipeline.pipeline)
 			wgpu.RenderPassEncoderSetBindGroup(render_pass, 0, globals_bind_group)
 			switch batch.kind {
-			case .Colored, .Textured:
+			case .Rect:
 				wgpu.RenderPassEncoderSetVertexBuffer(
 					render_pass,
 					0,
@@ -1391,12 +1225,15 @@ ui_renderer_render :: proc(
 				)
 			}
 		}
-		if last_kind == .Textured || last_kind == .Glyph {
-			wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, batch.data.texture.bind_group)
+
+		batch_texture := batch.texture
+		if batch_texture == nil {
+			batch_texture = &rend.white_px_texture
 		}
+		wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, batch_texture.bind_group)
 
 		switch batch.kind {
-		case .Colored, .Textured:
+		case .Rect:
 			index_count := u32(batch.end_idx - batch.start_idx)
 			wgpu.RenderPassEncoderDrawIndexed(
 				render_pass,
@@ -1453,18 +1290,13 @@ ui_renderer_create :: proc(
 	if default_font_path == "" {
 		panic("No default font specified in engine settings!")
 	}
-
 	rend.device = device
 	rend.queue = queue
-	rend.colored_pipeline.config = ui_colored_pipeline_config(device, globals_layout)
-	render_pipeline_create_panic(&rend.colored_pipeline, device, reg)
-
-	rend.textured_pipeline.config = ui_textured_pipeline_config(device, globals_layout)
-	render_pipeline_create_panic(&rend.textured_pipeline, device, reg)
+	rend.rect_pipeline.config = ui_rect_pipeline_config(device, globals_layout)
+	render_pipeline_create_panic(&rend.rect_pipeline, device, reg)
 
 	rend.glyph_pipeline.config = ui_glyph_pipeline_config(device, globals_layout)
 	render_pipeline_create_panic(&rend.glyph_pipeline, device, reg)
-
 
 	print(default_font_path)
 	font, err := font_create(default_font_path, device, queue)
@@ -1478,55 +1310,34 @@ ui_renderer_create :: proc(
 	rend.vertex_buffer.usage = {.Vertex}
 	rend.index_buffer.usage = {.Index}
 	rend.glyph_instance_buffer.usage = {.Vertex}
+
+	rend.white_px_texture = texture_create_1px_white(device, queue)
+
 	return
 }
 
-ui_colored_pipeline_config :: proc(
+ui_rect_pipeline_config :: proc(
 	device: wgpu.Device,
 	globals_layout: wgpu.BindGroupLayout,
 ) -> RenderPipelineConfig {
 	return RenderPipelineConfig {
-		debug_name = "ui_colored",
+		debug_name = "ui_rect",
 		vs_shader = "ui",
-		vs_entry_point = "vs_colored",
+		vs_entry_point = "vs_rect",
 		fs_shader = "ui",
-		fs_entry_point = "fs_colored",
+		fs_entry_point = "fs_rect",
 		topology = .TriangleList,
 		vertex = {
 			ty_id = UiVertex,
 			attributes = {
 				{format = .Float32x2, offset = offset_of(UiVertex, pos)},
-				{format = .Float32x2, offset = offset_of(UiVertex, normal)},
-				{format = .Float32x4, offset = offset_of(UiVertex, color)},
+				{format = .Float32x2, offset = offset_of(UiVertex, size)},
 				{format = .Float32x2, offset = offset_of(UiVertex, uv)},
-			},
-		},
-		instance = {},
-		bind_group_layouts = {globals_layout},
-		push_constant_ranges = {},
-		blend = ALPHA_BLENDING,
-		format = HDR_FORMAT,
-	}
-}
-
-ui_textured_pipeline_config :: proc(
-	device: wgpu.Device,
-	globals_layout: wgpu.BindGroupLayout,
-) -> RenderPipelineConfig {
-	return RenderPipelineConfig {
-		debug_name = "ui_textured",
-		vs_shader = "ui",
-		vs_entry_point = "vs_textured",
-		fs_shader = "ui",
-		fs_entry_point = "fs_textured",
-		topology = .TriangleList,
-		vertex = {
-			ty_id = UiVertex,
-			attributes = {
-				{format = .Float32x2, offset = offset_of(UiVertex, pos)},
-				{format = .Float32x2, offset = offset_of(UiVertex, normal)},
 				{format = .Float32x4, offset = offset_of(UiVertex, color)},
-				{format = .Float32x2, offset = offset_of(UiVertex, uv)},
+				{format = .Float32x4, offset = offset_of(UiVertex, border_color)},
+				{format = .Float32x4, offset = offset_of(UiVertex, border_radius)},
+				{format = .Float32x4, offset = offset_of(UiVertex, border_width)},
+				{format = .Uint32, offset = offset_of(UiVertex, flags)},
 			},
 		},
 		instance = {},
@@ -1568,8 +1379,7 @@ ui_glyph_pipeline_config :: proc(
 
 ui_renderer_destroy :: proc(rend: ^UiRenderer) {
 	ui_batches_destroy(&rend.batches)
-	render_pipeline_destroy(&rend.colored_pipeline)
-	render_pipeline_destroy(&rend.textured_pipeline)
+	render_pipeline_destroy(&rend.rect_pipeline)
 	render_pipeline_destroy(&rend.glyph_pipeline)
 	dynamic_buffer_destroy(&rend.vertex_buffer)
 	dynamic_buffer_destroy(&rend.index_buffer)

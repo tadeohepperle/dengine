@@ -41,10 +41,10 @@ main :: proc() {
 		div(
 			Div {
 				padding = {10, 10, 10, 10},
-				color = color_gray(0.2),
-				width = 1,
-				height = 400,
-				flags = {.WidthFraction, .HeightPx},
+				color   = {}, //   color_gray(0.2),
+				width   = 1,
+				height  = 400,
+				flags   = {.WidthFraction, .HeightPx},
 			},
 		)
 		start_children()
@@ -85,23 +85,46 @@ main :: proc() {
 			end_children()
 		}
 
+
+		@(static)
+		border_width: BorderWidth = {
+			top    = 20,
+			left   = 20,
+			bottom = 20,
+			right  = 20,
+		}
+		@(static)
+		border_radius: BorderRadius = {
+			top_left     = 120,
+			bottom_left  = 200,
+			top_right    = 30,
+			bottom_right = 60,
+		}
+		@(static)
+		size := Vec2{700, 600}
+		slider(&border_radius.top_left, 0, 200)
+		slider(&border_radius.top_right, 0, 200)
+		slider(&border_radius.bottom_right, 0, 200)
+		slider(&border_radius.bottom_left, 0, 200)
+		slider(&border_width.top, 0, 200)
+		slider(&border_width.left, 0, 200)
+		slider(&border_width.bottom, 0, 200)
+		slider(&border_width.right, 0, 200)
+		slider(&size.x, 0, 800)
+		slider(&size.y, 0, 800)
+
 		div(
 			Div {
 				color = Color_Green,
-				width = 400,
-				height = 300,
+				width = size.x,
+				height = size.y,
 				flags = {.WidthPx, .HeightPx, .Absolute},
 				absolute_unit_pos = {1, 0.5},
 				padding = {left = 20},
 				border_color = Color_White,
-				border_width = 50,
-				border_radius = {
-					top_left = 120,
-					bottom_left = 30,
-					top_right = 30,
-					bottom_right = 60,
-				},
-				offset = Vec2{-100, 0},
+				border_width = border_width,
+				border_radius = border_radius,
+				offset = Vec2{-300, 300},
 			},
 		)
 

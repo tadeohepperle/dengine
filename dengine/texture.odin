@@ -62,7 +62,6 @@ texture_from_image :: proc(
 ) -> (
 	texture: Texture,
 ) {
-
 	size := UVec2{u32(img.width), u32(img.height)}
 	texture = texture_create(device, size, settings)
 
@@ -96,6 +95,27 @@ texture_as_image_copy :: proc(texture: ^Texture) -> wgpu.ImageCopyTexture {
 		origin = {0, 0, 0},
 		aspect = .All,
 	}
+}
+
+texture_create_1px_white :: proc(device: wgpu.Device, queue: wgpu.Queue) -> Texture {
+	texture := texture_create(device, {1, 1}, DEFAULT_TEXTURESETTINGS)
+	block_size: u32 = 4
+	image_copy := texture_as_image_copy(&texture)
+	data_layout := wgpu.TextureDataLayout {
+		offset       = 0,
+		bytesPerRow  = 4,
+		rowsPerImage = 1,
+	}
+	data := [4]u8{255, 255, 255, 255}
+	wgpu.QueueWriteTexture(
+		queue,
+		&image_copy,
+		&data,
+		4,
+		&data_layout,
+		&wgpu.Extent3D{width = 1, height = 1, depthOrArrayLayers = 1},
+	)
+	return texture
 }
 
 texture_create :: proc(

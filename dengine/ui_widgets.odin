@@ -19,11 +19,12 @@ button :: proc(title: string, id: string = "") -> Interaction {
 
 	div(
 		Div {
-			id = id,
-			padding = {24, 24, 8, 8},
-			color = color,
-			border_radius = {10, 10, 10, 10},
-			border_width = 8.0,
+			id            = id,
+			padding       = {24, 24, 8, 8},
+			color         = color,
+			border_radius = {20, 20, 20, 20}, //{10, 10, 10, 10},
+			border_width  = {4, 4, 4, 4},
+			border_color  = Color_Black,
 		},
 	)
 	start_children()
@@ -89,7 +90,7 @@ slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 	id := u64(uintptr(value))
 	val: f32 = value^
 
-	f := val - min / max - min
+	f := (val - min) / (max - min)
 	res := ui_button_interaction(id)
 	if res.just_pressed {
 		cached_div := cache.cached[id]
