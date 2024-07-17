@@ -16,7 +16,12 @@ color_from_hex :: proc(hex: string) -> Color {
 		switch c {
 		case '0' ..= '9':
 			return u8(c - '0')
+		case 'a' ..= 'f':
+			return u8(c - 'a' + 10)
+		case 'A' ..= 'F':
+			return u8(c - 'A' + 10)
 		}
+
 		return 0
 
 		// return match c {

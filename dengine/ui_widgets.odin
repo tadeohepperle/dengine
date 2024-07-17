@@ -1,8 +1,10 @@
 package dengine
 
+import "base:intrinsics"
 import "core:fmt"
 import "core:math"
 import "core:mem"
+import "core:strings"
 
 button :: proc(title: string, id: string = "") -> Interaction {
 	id := ui_id(id) if id != "" else ui_id(title)
@@ -74,7 +76,7 @@ toggle :: proc(value: ^bool, title: string) {
 			width = 24,
 			height = 24,
 			animation_speed = 10,
-			flags = {.WidthPx, .HeightPx, .Animate},
+			flags = {.WidthPx, .HeightPx, .Animate, .PointerPassThrough},
 			border_radius = {12, 12, 12, 12},
 		},
 	)
@@ -218,18 +220,89 @@ DO_SOMETHING := proc(t: string) {
 	fmt.print("Do something", t)
 }
 
-CONSTCOLOR := color("Hello")
+StringBuilder :: strings.Builder
+text_edit :: proc(value: ^strings.Builder) {
 
-color :: proc(a: string) -> Color {
-	if a[0] == 'a' {
-		return {0, 1, 1, 1}
+	input := UI_MEMORY.cache.input
+	for c in input.chars[:input.chars_len] {
+		strings.write_rune(value, c)
 	}
-	return {1, 1, 1, 1}
+	if .JustPressed in input.keys[.BACKSPACE] || .JustRepeated in input.keys[.BACKSPACE] {
+		if strings.builder_len(value^) > 0 {
+			strings.pop_rune(value)
+		}
+		print(strings.to_string(value^))
+	}
+	text_str := strings.to_string(value^)
+	start_div(
+		Div {
+			width = 200,
+			height = 32,
+			flags = {.WidthPx, .HeightPx},
+			color = color_gray(0.4),
+			border_radius = {4, 4, 4, 4},
+		},
+	)
+	text(
+		Text {
+			str = text_str,
+			color = Color_Black,
+			font_size = 18.0,
+			shadow = 0.0,
+			align = .Right,
+			line_break = .Never,
+		},
+	)
+	end_div()
 }
 
+enum_radio :: proc(value: ^$T, title: string = "") where intrinsics.type_is_enum(T) {
+	start_div(
+		Div {
+			padding = {16, 16, 8, 8},
+			color = color_from_hex("#252833"),
+			border_radius = {8, 8, 8, 8},
+		},
+	)
+	if title != "" {
+		text(Text{str = title, color = Color_White * 3.0, font_size = 28.0, shadow = 0.3})
+	}
 
-lorem :: proc(letters := 300) -> string {
-	LOREM := "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.   "
-	letters := min(letters, len(LOREM))
-	return LOREM[0:letters]
+	for variant in T {
+		str := fmt.aprint(variant, allocator = context.temp_allocator)
+		id := ui_id(str) ~ u64(uintptr(value))
+
+		res := ui_button_interaction(id)
+		if res.just_pressed {
+			value^ = variant
+		}
+		selected := value^ == variant
+		text_color := Color_White if selected else color_gray(0.3)
+		if res.is_hovered {
+			text_color = color_from_hex("#f7efb2")
+		}
+		start_div(
+			Div {
+				id = id,
+				gap = 8,
+				padding = {bottom = 4, top = 4},
+				flags = {.AxisX, .CrossAlignCenter},
+			},
+		)
+		div(
+			Div {
+				width = 20.0,
+				height = 20.0,
+				color = color_from_hex("#09090a") if selected else text_color,
+				flags = {.WidthPx, .HeightPx, .MainAlignCenter, .CrossAlignCenter},
+				border_radius = {6, 6, 6, 6},
+				border_width = {4, 4, 4, 4},
+				border_color = Color_White if selected else text_color,
+			},
+		)
+		text(Text{str = str, color = text_color, font_size = 22.0, shadow = 0.3})
+		end_div()
+	}
+	end_div()
+
 }

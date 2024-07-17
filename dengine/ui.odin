@@ -24,7 +24,6 @@ Interaction :: struct {
 	just_released: bool,
 }
 
-
 ui_button_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (res: Interaction) {
 	cache := UI_MEMORY.cache
 	cached, ok := cache.cached[id]
@@ -32,21 +31,18 @@ ui_button_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (
 	if !ok {
 		return Interaction{}
 	}
-	press := cache.mouse_buttons[.Left]
-	cursor_in_bounds :=
-		cache.cursor_pos.x >= cached.pos.x &&
-		cache.cursor_pos.y >= cached.pos.y &&
-		cache.cursor_pos.x <= cached.pos.x + cached.size.x &&
-		cache.cursor_pos.y <= cached.pos.y + cached.size.y
-	if cursor_in_bounds && cache.hot_active_id == 0 || cache.hot_active_id == id {
+	press := cache.input.mouse_buttons[.Left]
+
+	is_hovered := cache.hovered_id == id
+	if is_hovered {
 		res.is_hovered = true
 	}
 	if cache.hot_active_id == id {
 		if cache.is_active {
 			// ACTIVE
 			res.is_pressed = true
-			if press == .JustReleased {
-				if cursor_in_bounds {
+			if .JustReleased in press {
+				if is_hovered {
 					res.just_released = true
 					cache.is_active = false
 				} else {
@@ -55,8 +51,8 @@ ui_button_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (
 			}
 		} else {
 			// HOT
-			if cursor_in_bounds {
-				if press == .JustPressed {
+			if is_hovered {
+				if .JustPressed in press {
 					res.is_pressed = true
 					res.just_pressed = true
 					cache.is_active = true
@@ -68,7 +64,7 @@ ui_button_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (
 		}
 	} else {
 		// NONE
-		if cursor_in_bounds && cache.hot_active_id == 0 {
+		if is_hovered && cache.hot_active_id == 0 {
 			cache.hot_active_id = id
 			cache.is_active = false
 		}
@@ -84,11 +80,12 @@ ActiveValue :: struct #raw_union {
 
 UiCache :: struct {
 	cached:                  map[UI_ID]CachedDiv,
+	hovered_id:              UI_ID, // determined by cache at start of frame.
 	hot_active_id:           UI_ID, // if "" -> none.
 	is_active:               bool, // refers to hot_active_id: if false -> hot, if true -> active
 	cursor_pos_start_active: Vec2,
 	active_value:            ActiveValue,
-	mouse_buttons:           [MouseButton]KeyState,
+	input:                   ^Input,
 	cursor_pos:              Vec2, // (scaled to reference cursor pos)
 	layout_extent:           Vec2,
 }
@@ -97,7 +94,9 @@ CachedDiv :: struct {
 	pos:        Vec2,
 	size:       Vec2,
 	color:      Color,
+	z:          int, // todo! right now z is just idx in UI_BUFFER. added later -> on top
 	generation: int,
+	flags:      DivFlags,
 }
 
 ComputedGlyph :: struct {
@@ -245,12 +244,27 @@ BorderWidth :: struct {
 }
 
 Text :: struct {
-	str:       string,
-	font:      ^Font,
-	color:     Color,
-	font_size: f32,
-	shadow:    f32,
-	offset:    Vec2,
+	str:        string,
+	font:       ^Font,
+	color:      Color,
+	font_size:  f32,
+	shadow:     f32,
+	offset:     Vec2,
+	line_break: LineBreak,
+	align:      TextAlign,
+}
+
+TextAlign :: enum {
+	Left,
+	Center,
+	Right,
+	LeftButRightIfOverflow,
+}
+
+LineBreak :: enum {
+	OnWord      = 0,
+	OnCharacter = 1,
+	Never       = 2,
 }
 
 DivFlags :: bit_set[DivFlag]
@@ -270,11 +284,28 @@ DivFlag :: enum u32 {
 	LayoutAsText,
 	Animate,
 	ClipContent,
-	OverflowX, // children will be given infinite size in x direction.
+	PointerPassThrough, // divs with this are not considered when determinin which div is hovered. useful for divs that need ids to do animation but are on top of other divs that we want to interact with.
 }
 
 ui_start_frame :: proc(cache: ^UiCache) {
 	UI_MEMORY.cache = cache
+	// figure out if any ui element with an id is hovered. If many, select the one with highest z value
+	cache.hovered_id = 0
+	cursor_on_div_highest_z := min(int)
+	for id, cached in cache.cached {
+		if cached.z > cursor_on_div_highest_z && .PointerPassThrough not_in cached.flags {
+			cursor_in_bounds :=
+				cache.cursor_pos.x >= cached.pos.x &&
+				cache.cursor_pos.y >= cached.pos.y &&
+				cache.cursor_pos.x <= cached.pos.x + cached.size.x &&
+				cache.cursor_pos.y <= cached.pos.y + cached.size.y
+			if cursor_in_bounds {
+				cursor_on_div_highest_z = cached.z
+				cache.hovered_id = id
+			}
+		}
+	}
+
 	rand.reset(42)
 	// clear the ui buffer:
 	clear_UI_MEMORY()
@@ -315,37 +346,42 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 	for i in 0 ..< UI_MEMORY.elements_len {
 		#partial switch &div in &UI_MEMORY.elements[i] {
 		case DivWithComputed:
-			if div.id != 0 {
-				cached_div, ok := &cache.cached[div.id]
-				if ok {
-					cached_div.generation = generation
-					if DivFlag.Animate in div.flags {
-						lerp_speed := div.animation_speed
-						if lerp_speed == 0 {
-							lerp_speed = DIV_DEFAULT_LERP_SPEED
-						}
-						s := lerp_speed * delta_secs
-						cached_div.color = lerp(cached_div.color, div.color, s)
-						div.color = cached_div.color
-						cached_div.pos = lerp(cached_div.pos, div.pos, s)
-						div.pos = cached_div.pos
-						cached_div.size = lerp(cached_div.size, div.size, s)
-						div.size = cached_div.size
-					} else {
-						cached_div.color = div.color
-						cached_div.pos = div.pos
-						cached_div.size = div.size
+			if div.id == 0 {
+				continue
+			}
+			cached_div, ok := &cache.cached[div.id]
+			if ok {
+				cached_div.generation = generation
+				cached_div.z = i
+				cached_div.flags = div.flags
+				if DivFlag.Animate in div.flags {
+					lerp_speed := div.animation_speed
+					if lerp_speed == 0 {
+						lerp_speed = DIV_DEFAULT_LERP_SPEED
 					}
+					s := lerp_speed * delta_secs
+					cached_div.color = lerp(cached_div.color, div.color, s)
+					div.color = cached_div.color
+					cached_div.pos = lerp(cached_div.pos, div.pos, s)
+					div.pos = cached_div.pos
+					cached_div.size = lerp(cached_div.size, div.size, s)
+					div.size = cached_div.size
 				} else {
-					cache.cached[div.id] = CachedDiv {
-						pos        = div.pos,
-						size       = div.size,
-						color      = div.color,
-						generation = generation,
-					}
-
+					cached_div.color = div.color
+					cached_div.pos = div.pos
+					cached_div.size = div.size
+				}
+			} else {
+				cache.cached[div.id] = CachedDiv {
+					pos        = div.pos,
+					size       = div.size,
+					color      = div.color,
+					generation = generation,
+					z          = i,
+					flags      = div.flags,
 				}
 			}
+
 		}
 	}
 
@@ -499,7 +535,8 @@ set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
 }
 
 set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) {
-	ctx := tmp_text_layout_ctx(max_size, 0.0)
+	if text.str == "" {return}
+	ctx := tmp_text_layout_ctx(max_size, 0.0, text.align)
 	layout_text_in_text_ctx(&ctx, text)
 	text.size = finalize_text_layout_ctx_and_return_size(&ctx)
 }
@@ -575,15 +612,9 @@ set_child_sizes_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -
 	skipped = 1
 	axis_is_x := DivFlag.AxisX in div.flags
 
-
-	max_size := max_size
-	if .OverflowX in div.flags {
-		max_size.x = max(f32)
-	}
-
 	if DivFlag.LayoutAsText in div.flags {
 		// perform a text layout with all children:
-		ctx := tmp_text_layout_ctx(max_size, f32(div.gap))
+		ctx := tmp_text_layout_ctx(max_size, f32(div.gap), .Left) // todo! .Left not necessarily correct here, maybe use divs CrossAlign converted to text align or something.
 		for _ in 0 ..< div.child_count {
 			c_idx := i + skipped
 			element := &UI_MEMORY.elements[c_idx]
@@ -664,7 +695,8 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 			break_line(ctx)
 			continue
 		}
-		needs_line_break := ctx.current_line.advance + g.advance > ctx.max_width
+		needs_line_break :=
+			text.line_break != .Never && ctx.current_line.advance + g.advance > ctx.max_width
 		if needs_line_break {
 			break_line(ctx)
 			if g.is_white_space {
@@ -672,7 +704,9 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 				// (we do not want to have extra white space at the end of a line or at the start of a line unintentionally.)
 				clear(&ctx.last_non_whitespace_advances)
 				continue
-			} else {
+			}
+
+			if text.line_break == .OnWord {
 				// now move all letters that have been part of this word before onto the next line:
 				move_n_to_next_line := len(ctx.last_non_whitespace_advances)
 				last_line: ^LineRun = &ctx.lines[len(ctx.lines) - 1]
@@ -753,18 +787,18 @@ merge_line_metrics_to_max :: proc(a: LineMetrics, b: LineMetrics) -> (res: LineM
 	return
 }
 
-finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (bounding_size: Vec2) {
+finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_size: Vec2) {
+	max_size = ctx.max_size
 
 	append(&ctx.lines, ctx.current_line)
 	// calculate the y of the character baseline for each line and add it to the y position of each glyphs coordinates
 	base_y: f32 = 0
 	max_line_width: f32 = 0
 	n_lines := len(ctx.lines)
-	for i in 0 ..< n_lines {
-		line := &ctx.lines[i]
+	for &line, i in ctx.lines {
 		base_y += line.metrics.ascent
 		line.baseline_y = base_y
-		max_line_width = max(max_line_width, line.advance)
+		max_line_width = max(max_line_width, line.advance) // TODO! technically line.advance is not the correct end of the line, instead the last glyphs width should be the cutoff value. The advance could be wider of less wide than the width.
 		// todo! there is a bug here, if the width of the container is too small to hold a single word, the application crashes.
 		for &g in UI_MEMORY.glyphs[line.glyphs_start_idx:line.glyphs_end_idx] {
 			g.pos.y += base_y
@@ -782,10 +816,40 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (boundi
 		bottom_y := line.baseline_y - line.metrics.descent
 		div := UI_MEMORY.elements[e.div_element_idx].(DivWithComputed)
 		div.pos.y = bottom_y - div.size.y
+	} // Todo: Test this, I think I just ported this over from Rust but not sure if divs in text layout are supported yet.
+
+
+	max_size = Vec2{min(max_size.x, max_line_width), min(max_size.y, base_y)}
+
+	if ctx.align != .Left {
+		for &line in ctx.lines {
+			offset: f32 = ---
+			line_width := line.advance
+			switch ctx.align {
+			case .Left:
+				unreachable()
+			case .Center:
+				offset = (max_size.x - line_width) / 2
+			case .Right:
+				offset = max_size.x - line_width
+			case .LeftButRightIfOverflow:
+				if line_width > max_size.y {
+					offset = max_size.x - line_width
+				}
+			}
+			if offset == 0 {
+				continue
+			}
+			for &g in UI_MEMORY.glyphs[line.glyphs_start_idx:line.glyphs_end_idx] {
+				g.pos.x += offset
+			}
+		}
 	}
+
+
 	// todo: add a mode for centered / end aligned text layout:
 	//    How? Iterate over lines a second time, shift all glyphs and all elements of that line by some amount to the right, depending on the max_width of all lines.
-	bounding_size = Vec2{max_line_width, base_y}
+
 	return
 }
 
@@ -798,11 +862,11 @@ LineRun :: struct {
 	baseline_y:       f32,
 	// current advance where to place the next glyph if still space
 	advance:          f32,
+	// TODO! add width and use instead of advance. width:            f32, // almost the same as advance, but could be slightly different: the last glyph is 
 	glyphs_start_idx: int,
 	glyphs_end_idx:   int,
 	metrics:          LineMetrics,
 }
-
 
 DivAndLineIdx :: struct {
 	div_element_idx: int,
@@ -821,10 +885,15 @@ TextLayoutCtx :: struct {
 	// save for the last few glyphs that are connected without whitespace in-between their adavances in x direction.
 	last_non_whitespace_advances: [dynamic]XOffsetAndAdvance,
 	divs_and_their_line_idxs:     [dynamic]DivAndLineIdx,
+	align:                        TextAlign,
 }
 
 
-tmp_text_layout_ctx :: proc(max_size: Vec2, additional_line_gap: f32) -> TextLayoutCtx {
+tmp_text_layout_ctx :: proc(
+	max_size: Vec2,
+	additional_line_gap: f32,
+	align: TextAlign,
+) -> TextLayoutCtx {
 	return TextLayoutCtx {
 		max_size = max_size,
 		max_width = f32(max_size.x),
@@ -842,6 +911,7 @@ tmp_text_layout_ctx :: proc(max_size: Vec2, additional_line_gap: f32) -> TextLay
 			[dynamic]DivAndLineIdx,
 			allocator = context.temp_allocator,
 		),
+		align = align,
 	}
 }
 
@@ -1343,7 +1413,7 @@ layout_to_screen_space :: proc(pt: Vec2, screen_size: Vec2) -> Vec2 {
 
 ui_renderer_start_frame :: proc(rend: ^UiRenderer, screen_size: Vec2, input: ^Input) {
 	cache := &rend.cache
-	cache.mouse_buttons = input.mouse_buttons
+	cache.input = input
 	cache.layout_extent = Vec2 {
 		f32(SCREEN_REFERENCE_SIZE.y) * screen_size.x / screen_size.y,
 		f32(SCREEN_REFERENCE_SIZE.y),

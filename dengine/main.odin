@@ -35,6 +35,10 @@ main :: proc() {
 	player_pos := Vec2{0, 0}
 	forest := [?]Vec2{{0, 0}, {2, 0}, {3, 0}, {5, 2}, {6, 3}}
 
+	@(static)
+	text_to_edit: StringBuilder
+	strings.write_string(&text_to_edit, "This is text.")
+
 	for engine_start_frame(&engine) {
 
 
@@ -102,7 +106,9 @@ main :: proc() {
 		@(static)
 		should_clip := true
 		@(static)
-		should_overflow_x := false
+		line_break: LineBreak
+		@(static)
+		text_align: TextAlign
 		slider(&border_radius.top_left, 0, 200)
 		slider(&border_radius.top_right, 0, 200)
 		slider(&border_radius.bottom_right, 0, 200)
@@ -115,13 +121,8 @@ main :: proc() {
 		slider(&size.y, 0, 800)
 		flags: DivFlags = {.WidthPx, .HeightPx, .Absolute}
 		toggle(&should_clip, "should clip")
-		toggle(&should_overflow_x, "should overflow_x")
 		if should_clip {
 			flags |= {.ClipContent}
-		}
-		if should_overflow_x {
-			flags |= {.OverflowX}
-
 		}
 		start_div(
 			Div {
@@ -137,13 +138,25 @@ main :: proc() {
 				offset = Vec2{-300, 300},
 			},
 		)
-		text(Text{font_size = 24.0, str = lorem(300), shadow = 0.5, color = Color_White})
+		text(
+			Text {
+				font_size = 24.0,
+				str = lorem(300),
+				shadow = 0.5,
+				color = Color_White,
+				line_break = line_break,
+				align = text_align,
+			},
+		)
 		end_div()
 
 		end_div()
 
 		start_window("Hello")
+		text_edit(&text_to_edit)
 		red_box()
+		enum_radio(&line_break, "Line Break Value")
+		enum_radio(&text_align, "Text Align")
 		end_window()
 
 
@@ -176,12 +189,12 @@ main :: proc() {
 		// 	Sprite{texture = corn, pos = {0, 0}, size = {1, 1}, rotation = 0, color = Color_Aqua},
 		// )
 
-		engine.settings.bloom_enabled = engine.input.keys[.SPACE] == .Pressed
+		engine.settings.bloom_enabled = .Pressed in engine.input.keys[.SPACE]
 		keys := [?]Key{.LEFT, .RIGHT, .UP, .DOWN}
 		directions := [?]Vec2{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
 		for k, i in keys {
-			if engine.input.keys[k] == .Pressed {
+			if .Pressed in engine.input.keys[k] {
 				player_pos += directions[i] * 20 * engine.delta_secs
 			}
 		}

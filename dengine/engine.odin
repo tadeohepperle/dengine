@@ -144,7 +144,7 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 	engine.total_time_f64 = time
 	engine.total_secs = f32(engine.total_time_f64)
 
-	if glfw.WindowShouldClose(engine.window) || engine.input.keys[.ESCAPE] == .JustPressed {
+	if glfw.WindowShouldClose(engine.window) || .JustPressed in engine.input.keys[.ESCAPE] {
 		return false
 	}
 
@@ -179,10 +179,10 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 	input_end_of_frame(&engine.input)
 	_engine_render(engine, scene)
 	scene_clear(scene)
-
+	free_all(context.temp_allocator)
 }
 
-// Note: assumes that engine.screen_size already contains the new size from the gltf resize callback
+// Note: assumes that engine.screen_size already contains the new size from the glfw resize callback
 _engine_resize :: proc(engine: ^Engine) {
 	engine.resized = false
 	print("resized:", engine.surface_config)
@@ -352,6 +352,14 @@ _init_glfw_window :: proc(engine: ^Engine) {
 		input_receive_glfw_key_event(&engine.input, key, action)
 	}
 	glfw.SetKeyCallback(engine.window, key_callback)
+
+	char_callback :: proc "c" (window: glfw.WindowHandle, char: rune) {
+		context = runtime.default_context()
+		engine: ^Engine = auto_cast glfw.GetWindowUserPointer(window)
+		input_receive_glfw_char_event(&engine.input, char)
+	}
+	glfw.SetCharCallback(engine.window, char_callback)
+
 
 	cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x_pos, y_pos: f64) {
 		context = runtime.default_context()

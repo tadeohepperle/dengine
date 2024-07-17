@@ -3,40 +3,56 @@ import "vendor:glfw"
 
 import "core:fmt"
 
+
+MAX_CAPTURES_CHARS :: 16
+
 Input :: struct {
 	cursor_pos_f64: [2]f64,
 	cursor_pos:     [2]f32,
-	keys:           #sparse[Key]KeyState,
-	mouse_buttons:  [MouseButton]KeyState,
+	keys:           #sparse[Key]PressFlags,
+	mouse_buttons:  [MouseButton]PressFlags,
+	chars:          [MAX_CAPTURES_CHARS]rune,
+	chars_len:      int,
 }
 
-KeyState :: enum u8 {
-	Released,
-	JustReleased,
+
+PressFlags :: bit_set[PressFlag;u8]
+
+PressFlag :: enum u8 {
 	Pressed,
 	JustPressed,
 	JustRepeated,
+	JustReleased,
+}
+
+
+input_receive_glfw_char_event :: proc(input: ^Input, char: rune) {
+	if input.chars_len < MAX_CAPTURES_CHARS {
+		input.chars[input.chars_len] = char
+		input.chars_len += 1
+	} else {
+		print("Warning: a character has been dropped:", char)
+	}
 }
 
 
 input_end_of_frame :: proc(input: ^Input) {
 	for key in Key {
 		state := &input.keys[key]
-		if state^ == .JustPressed || state^ == .JustRepeated {
-			state^ = .Pressed
-		}
-		if state^ == .JustReleased {
-			state^ = .Released
+		if .Pressed in state {
+			state^ = {.Pressed}
+		} else {
+			state^ = {}
 		}
 	}
 	for &btn in input.mouse_buttons {
-		if btn == .JustPressed || btn == .JustRepeated {
-			btn = .Pressed
-		}
-		if btn == .JustReleased {
-			btn = .Released
+		if .Pressed in btn {
+			btn = {.Pressed}
+		} else {
+			btn = {}
 		}
 	}
+	input.chars_len = 0
 }
 
 input_receive_glfw_key_event :: proc(input: ^Input, glfw_key, action: i32) {
@@ -44,11 +60,11 @@ input_receive_glfw_key_event :: proc(input: ^Input, glfw_key, action: i32) {
 	case Key:
 		switch action {
 		case glfw.PRESS:
-			input.keys[key] = .JustPressed
+			input.keys[key] = {.JustPressed, .Pressed}
 		case glfw.REPEAT:
-		// input.keys[key] = .JustRepeated
+			input.keys[key] = {.JustRepeated, .Pressed}
 		case glfw.RELEASE:
-			input.keys[key] = .JustReleased
+			input.keys[key] = {.JustReleased}
 		}
 	}
 }
@@ -58,11 +74,11 @@ input_receive_glfw_mouse_btn_event :: proc(input: ^Input, glfw_button, action: i
 	case MouseButton:
 		switch action {
 		case glfw.PRESS:
-			input.mouse_buttons[button] = .JustPressed
+			input.mouse_buttons[button] = {.JustPressed, .Pressed}
 		case glfw.REPEAT:
-			input.mouse_buttons[button] = .JustRepeated
+			input.mouse_buttons[button] = {.JustRepeated, .Pressed}
 		case glfw.RELEASE:
-			input.mouse_buttons[button] = .JustReleased
+			input.mouse_buttons[button] = {.JustReleased}
 		}
 	}
 }
