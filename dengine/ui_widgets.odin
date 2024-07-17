@@ -17,7 +17,7 @@ button :: proc(title: string, id: string = "") -> Interaction {
 		color = Color_Goldenrod
 	}
 
-	div(
+	start_div(
 		Div {
 			id            = id,
 			padding       = {24, 24, 8, 8},
@@ -27,9 +27,8 @@ button :: proc(title: string, id: string = "") -> Interaction {
 			border_color  = Color_Black,
 		},
 	)
-	start_children()
 	text(Text{str = title, font_size = 24, color = Color_Black, shadow = 0.0})
-	end_children()
+	end_div()
 
 	return res
 
@@ -45,8 +44,8 @@ toggle :: proc(value: ^bool, title: string) {
 	}
 
 
-	div(Div{flags = {.AxisX}, gap = 8})
-	start_children()
+	start_div(Div{flags = {.AxisX}, gap = 8})
+
 
 	circle_color := Color_Green if active else Color_Gray
 	if res.is_hovered {
@@ -56,7 +55,7 @@ toggle :: proc(value: ^bool, title: string) {
 	if active {
 		pill_flags |= {.MainAlignEnd}
 	}
-	div(
+	start_div(
 		Div {
 			id = id,
 			color = Color_White,
@@ -67,7 +66,7 @@ toggle :: proc(value: ^bool, title: string) {
 			border_radius = {16, 16, 16, 16},
 		},
 	)
-	start_children()
+
 	div(
 		Div {
 			id = id + 1,
@@ -79,10 +78,10 @@ toggle :: proc(value: ^bool, title: string) {
 			border_radius = {12, 12, 12, 12},
 		},
 	)
-	end_children()
+	end_div()
 	text_color := Color_White if active else Color_Dark_Gray
 	text(Text{str = title, font_size = 24, color = text_color})
-	end_children()
+	end_div()
 }
 
 
@@ -122,7 +121,7 @@ slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 		value^ = val
 	}
 
-	div(
+	start_div(
 		Div {
 			id = id,
 			width = slider_width,
@@ -131,7 +130,6 @@ slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 			flags = {.WidthPx, .HeightPx, .MainAlignCenter, .CrossAlignCenter},
 		},
 	)
-	start_children()
 	div(
 		Div {
 			width = knob_width,
@@ -143,12 +141,17 @@ slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 	)
 	text_str := fmt.aprintf("%f", val, allocator = context.temp_allocator)
 	text(Text{str = text_str, color = Color_White, font_size = 24})
-	end_children()
+	end_div()
 }
 
 
 WINDOW_BG := color_from_hex("#262630")
-window :: proc(title: string) {
+
+end_window :: proc() {
+	end_div()
+}
+
+start_window :: proc(title: string) {
 	id := ui_id(title)
 	cache := UI_MEMORY.cache
 	assert(UI_MEMORY.parent_stack_len == 0)
@@ -180,7 +183,7 @@ window :: proc(title: string) {
 
 	}
 
-	div(
+	start_div(
 		Div {
 			id = id,
 			offset = window_pos,
@@ -190,7 +193,7 @@ window :: proc(title: string) {
 			padding = {8, 8, 8, 8},
 		},
 	)
-	start_children()
+
 	text(
 		Text {
 			color = Color_Gray if res.is_hovered else Color_Black,
@@ -222,4 +225,11 @@ color :: proc(a: string) -> Color {
 		return {0, 1, 1, 1}
 	}
 	return {1, 1, 1, 1}
+}
+
+
+lorem :: proc(letters := 300) -> string {
+	LOREM := "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.   "
+	letters := min(letters, len(LOREM))
+	return LOREM[0:letters]
 }

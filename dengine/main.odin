@@ -38,7 +38,7 @@ main :: proc() {
 	for engine_start_frame(&engine) {
 
 
-		div(
+		start_div(
 			Div {
 				padding = {10, 10, 10, 10},
 				color   = {}, //   color_gray(0.2),
@@ -47,9 +47,7 @@ main :: proc() {
 				flags   = {.WidthFraction, .HeightPx},
 			},
 		)
-		start_children()
-		div(Div{color = Color_White})
-		start_children()
+		start_div(Div{color = Color_White})
 		text(
 			Text {
 				str       = "Hello! I am Tadeo.\nI would like to buy a sandwich! :)\nThis is gonna be the best day of my li i life, .... saksakslas",
@@ -59,7 +57,7 @@ main :: proc() {
 				color     = Color_White,
 			},
 		)
-		end_children()
+		end_div()
 
 		@(thread_local)
 		value: f32
@@ -79,10 +77,9 @@ main :: proc() {
 
 		toggle(&open, "show panel")
 		if open {
-			div(Div{padding = {10, 10, 10, 10}, color = Color_Blue})
-			start_children()
+			start_div(Div{padding = {10, 10, 10, 10}, color = Color_Blue})
 			text(Text{str = "Hello!", font_size = 100, color = Color_White})
-			end_children()
+			end_div()
 		}
 
 
@@ -102,6 +99,10 @@ main :: proc() {
 		}
 		@(static)
 		size := Vec2{700, 600}
+		@(static)
+		should_clip := true
+		@(static)
+		should_overflow_x := false
 		slider(&border_radius.top_left, 0, 200)
 		slider(&border_radius.top_right, 0, 200)
 		slider(&border_radius.bottom_right, 0, 200)
@@ -112,27 +113,38 @@ main :: proc() {
 		slider(&border_width.right, 0, 200)
 		slider(&size.x, 0, 800)
 		slider(&size.y, 0, 800)
+		flags: DivFlags = {.WidthPx, .HeightPx, .Absolute}
+		toggle(&should_clip, "should clip")
+		toggle(&should_overflow_x, "should overflow_x")
+		if should_clip {
+			flags |= {.ClipContent}
+		}
+		if should_overflow_x {
+			flags |= {.OverflowX}
 
-		div(
+		}
+		start_div(
 			Div {
 				color = Color_Green,
 				width = size.x,
 				height = size.y,
-				flags = {.WidthPx, .HeightPx, .Absolute},
+				flags = flags,
 				absolute_unit_pos = {1, 0.5},
-				padding = {left = 20},
+				padding = {},
 				border_color = Color_White,
 				border_width = border_width,
 				border_radius = border_radius,
 				offset = Vec2{-300, 300},
 			},
 		)
+		text(Text{font_size = 24.0, str = lorem(300), shadow = 0.5, color = Color_White})
+		end_div()
 
-		end_children()
+		end_div()
 
-		window("Hello")
+		start_window("Hello")
 		red_box()
-		end_children()
+		end_window()
 
 
 		append(
@@ -140,7 +152,7 @@ main :: proc() {
 			Sprite {
 				texture = sprite,
 				pos = player_pos,
-				size = {1, 1},
+				size = {1, 2.2},
 				rotation = 0,
 				color = Color_White,
 			},

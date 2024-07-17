@@ -20,8 +20,8 @@ struct VertexOutput{
 }
 
 fn world_pos_to_ndc(world_pos: vec2<f32>) -> vec4<f32>{
-	let ndc_y_flip = (globals.camera_pos - world_pos) / globals.camera_size;
-	return vec4<f32>(ndc_y_flip.x, ndc_y_flip.y, 0.0,1.0);
+	let ndc = (globals.camera_pos - world_pos) / globals.camera_size;
+	return vec4<f32>(ndc.x, -ndc.y, 0.0,1.0);
 }
 
 @vertex

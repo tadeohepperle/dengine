@@ -38,7 +38,8 @@ const BORDER: u32 = 8u;
 fn vs_rect(vertex: Vertex) -> VsRectOut {
 	let screen_size_r = vec2(SCREEN_REFERENCE_SIZE.y * globals.screen_size.x / globals.screen_size.y, SCREEN_REFERENCE_SIZE.y);
 	var out: VsRectOut;
-	out.clip_position = vec4(vertex.pos / screen_size_r * 2.0  -1.0, 0.0, 1.0);
+	let ndc = vertex.pos / screen_size_r * 2.0  -1.0;
+	out.clip_position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
 	var rel_pos = 0.5 * vertex.size;
     if (vertex.flags & RIGHT_VERTEX) == 0u {
         rel_pos.y *= -1.;
@@ -137,7 +138,8 @@ fn vs_glyph(@builtin(vertex_index) vertex_index: u32, instance: GlyphInstance) -
 	let uv = ((1.0 - u_uv) * instance.uv.xy + u_uv * instance.uv.zw);
 	let v_pos: vec2<f32> = instance.pos + u_uv * instance.size;
 	var out: VsGlyphOut;
-	out.clip_position = vec4(v_pos / screen_size_r() * 2.0  -1.0, 0.0, 1.0);
+	let ndc = v_pos / screen_size_r() * 2.0  -1.0;
+	out.clip_position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
 	out.color = instance.color;
 	out.uv = uv;
 	out.shadow_intensity = instance.shadow; 

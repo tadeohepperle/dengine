@@ -278,7 +278,12 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	)
 	defer wgpu.RenderPassEncoderRelease(hdr_pass)
 	sprite_renderer_render(&engine.sprite_renderer, hdr_pass, engine.globals_uniform.bind_group)
-	ui_renderer_render(&engine.ui_renderer, hdr_pass, engine.globals_uniform.bind_group)
+	ui_renderer_render(
+		&engine.ui_renderer,
+		hdr_pass,
+		engine.globals_uniform.bind_group,
+		engine.screen_size,
+	)
 	wgpu.RenderPassEncoderEnd(hdr_pass)
 
 	// /////////////////////////////////////////////////////////////////////////////

@@ -166,12 +166,18 @@ UiMemory :: struct {
 	glyphs_len:         int,
 	elements:           [MAX_UI_ELEMENTS]UiElement,
 	elements_len:       int,
-	parent_stack:       [MAX_PARENT_LEVELS]int, // the last item in this stack is the index of the current parent
+	parent_stack:       [MAX_PARENT_LEVELS]Parent, // the last item in this stack is the index of the current parent
 	parent_stack_len:   int,
 	default_font:       Font,
 	default_font_color: Color,
 	default_font_size:  f32,
 	cache:              ^UiCache,
+}
+
+
+Parent :: struct {
+	idx:         int,
+	child_count: int, // number of direct children
 }
 
 UiElement :: union {
@@ -180,12 +186,15 @@ UiElement :: union {
 }
 
 DivWithComputed :: struct {
-	using div:         Div,
-	pos:               Vec2, // computed
-	size:              Vec2, // computed
-	content_size:      Vec2, // computed
-	child_count:       int, // direct children of this Div
-	child_count_total: int, // number elements in the hierarchy under this div.
+	using div:    Div,
+	pos:          Vec2, // computed
+	size:         Vec2, // computed
+	content_size: Vec2, // computed
+	child_count:  int, // direct children of this Div
+	// number of elements in hierarchy below this, incl. self 
+	// skipped = (1 + children + children of children + children of children of children + ...)
+	// so the idx range  div.idx ..< div.idx+div.skipped is the entire ui subtree that this div is a parent of
+	skipped:      int,
 }
 
 TextWithComputed :: struct {
@@ -245,12 +254,12 @@ Text :: struct {
 }
 
 DivFlags :: bit_set[DivFlag]
-DivFlag :: enum {
+DivFlag :: enum u32 {
 	WidthPx,
 	WidthFraction,
 	HeightPx,
 	HeightFraction,
-	AxisX, // as opposed to AxisY
+	AxisX, // as opposed to default = AxisY 
 	MainAlignCenter,
 	MainAlignEnd,
 	MainAlignSpaceBetween,
@@ -260,7 +269,8 @@ DivFlag :: enum {
 	Absolute,
 	LayoutAsText,
 	Animate,
-	ClipChildren,
+	ClipContent,
+	OverflowX, // children will be given infinite size in x direction.
 }
 
 ui_start_frame :: proc(cache: ^UiCache) {
@@ -276,9 +286,10 @@ clear_UI_MEMORY :: proc() {
 }
 
 ui_end_frame :: proc(batches: ^UiBatches, max_size: Vec2, delta_secs: f32) {
+	assert(UI_MEMORY.parent_stack_len == 0, "make sure to call end_div() for every start_div()!")
+
 	if UI_MEMORY.cache == nil {
-		print("Cannot end frame when cache == nil")
-		os.exit(1)
+		panic("Cannot end frame when cache == nil")
 	}
 
 	layout(max_size)
@@ -286,7 +297,6 @@ ui_end_frame :: proc(batches: ^UiBatches, max_size: Vec2, delta_secs: f32) {
 	build_ui_batches(batches)
 	clear_UI_MEMORY()
 	UI_MEMORY.cache = nil
-	// if true {os.write_entire_file("hello.txt", transmute([]u8)fmt.aprint(batches));os.exit(1)}
 	return
 }
 
@@ -351,51 +361,53 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 }
 
 
-start_children :: proc() {
-	div_idx := UI_MEMORY.elements_len - 1
-	text, is_text := &UI_MEMORY.elements[div_idx].(TextWithComputed)
-	if is_text {
-		fmt.printfln("Cannot start children if the parent would be a text section: '%s'", text.str)
-		os.exit(1)
-	}
-	UI_MEMORY.parent_stack[UI_MEMORY.parent_stack_len] = div_idx
-	UI_MEMORY.parent_stack_len += 1
-}
-
-end_children :: proc() {
-	UI_MEMORY.parent_stack_len -= 1
-	if UI_MEMORY.parent_stack_len < 0 {
-		UI_MEMORY.parent_stack_len = 0
-	}
-}
-
 _pre_add_div_or_text :: #force_inline proc() {
 	if UI_MEMORY.elements_len == MAX_UI_ELEMENTS {
-		fmt.printfln("Too many Ui Elements (MAX_UI_ELEMENTS = %d)!", MAX_UI_ELEMENTS)
-		os.exit(1)
+		fmt.panicf("Too many Ui Elements (MAX_UI_ELEMENTS = %d)!", MAX_UI_ELEMENTS)
 	}
 	if UI_MEMORY.parent_stack_len != 0 {
-		parent_idx := UI_MEMORY.parent_stack[UI_MEMORY.parent_stack_len - 1]
-		parent_div: ^DivWithComputed
-		is_div: bool
-		parent_div, is_div = &UI_MEMORY.elements[parent_idx].(DivWithComputed)
-		assert(is_div)
-		parent_div.child_count += 1
+		UI_MEMORY.parent_stack[UI_MEMORY.parent_stack_len - 1].child_count += 1
 	}
-
 }
 
+// only used for divs without children, otherwise use `start_div` and `end_div`
 div :: proc(div: Div) {
 	_pre_add_div_or_text()
 	UI_MEMORY.elements[UI_MEMORY.elements_len] = DivWithComputed {
-		div          = div,
-		pos          = {0, 0},
-		size         = {0, 0},
-		content_size = {0, 0},
-		child_count  = 0,
+		div = div,
 	}
 	UI_MEMORY.elements_len += 1
 }
+
+// when called, make sure to call end_div later!
+start_div :: proc(div: Div) {
+	_pre_add_div_or_text()
+	idx := UI_MEMORY.elements_len
+	UI_MEMORY.elements[idx] = DivWithComputed {
+		div = div,
+	}
+	UI_MEMORY.elements_len += 1
+	UI_MEMORY.parent_stack[UI_MEMORY.parent_stack_len] = Parent {
+		idx         = idx,
+		child_count = 0,
+	}
+	UI_MEMORY.parent_stack_len += 1
+}
+
+end_div :: proc() {
+	assert(UI_MEMORY.parent_stack_len > 0, "called end_div too often!")
+	UI_MEMORY.parent_stack_len -= 1
+	parent := UI_MEMORY.parent_stack[UI_MEMORY.parent_stack_len]
+	switch &e in UI_MEMORY.elements[parent.idx] {
+	case DivWithComputed:
+		e.child_count = parent.child_count
+	case TextWithComputed:
+		panic(
+			"There is an idx pointing to a text element in the parent stack. Text elements cannot be parents.",
+		)
+	}
+}
+
 
 text_from_struct :: proc(text: Text) {
 	_pre_add_div_or_text()
@@ -408,10 +420,9 @@ text_from_struct :: proc(text: Text) {
 	}
 	if text.font == nil {
 		if default_font_is_not_set() {
-			fmt.println(
+			panic(
 				"No default font set! Use set_default_font or profive a font in the Text struct.",
 			)
-			os.exit(1)
 		}
 		text := &UI_MEMORY.elements[UI_MEMORY.elements_len].(TextWithComputed)
 		text.font = &UI_MEMORY.default_font
@@ -427,10 +438,9 @@ text :: proc {
 text_from_string :: proc(text: string) {
 
 	if default_font_is_not_set() {
-		fmt.println(
+		panic(
 			"No default font set! Use set_default_font. Cannot create text element from string alone.",
 		)
-		os.exit(1)
 	}
 
 	text_from_struct(
@@ -547,6 +557,7 @@ set_size_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -> (skip
 			div.size = Vec2{div.content_size.x + pad_x, div.content_size.y + pad_y}
 		}
 	}
+	div.skipped = skipped
 	return
 }
 
@@ -563,6 +574,12 @@ absolute_positioning :: proc(element: ^UiElement) -> bool {
 set_child_sizes_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -> (skipped: int) {
 	skipped = 1
 	axis_is_x := DivFlag.AxisX in div.flags
+
+
+	max_size := max_size
+	if .OverflowX in div.flags {
+		max_size.x = max(f32)
+	}
 
 	if DivFlag.LayoutAsText in div.flags {
 		// perform a text layout with all children:
@@ -636,8 +653,7 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 	for ch in text.str {
 		g, ok := ctx.current_font.glyphs[ch]
 		if !ok {
-			print("Character", ch, "not rastierized yet!")
-			os.exit(1)
+			fmt.panicf("Character %s not rastierized yet!", ch)
 		}
 		g.advance *= scale
 		g.xmin *= scale
@@ -749,6 +765,7 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (boundi
 		base_y += line.metrics.ascent
 		line.baseline_y = base_y
 		max_line_width = max(max_line_width, line.advance)
+		// todo! there is a bug here, if the width of the container is too small to hold a single word, the application crashes.
 		for &g in UI_MEMORY.glyphs[line.glyphs_start_idx:line.glyphs_end_idx] {
 			g.pos.y += base_y
 		}
@@ -852,8 +869,7 @@ set_child_positions_for_div_with_text_layout :: proc(
 ) -> (
 	skipped: int,
 ) {
-	print("divs with .LayoutAsText are not supported yet...")
-	os.exit(1)
+	panic("divs with .LayoutAsText are not supported yet...")
 }
 
 set_child_positions_for_div :: proc(i: int, div: ^DivWithComputed) -> (skipped: int) {
@@ -987,6 +1003,7 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 		kind: UiBatchKind,
 		texture: ^Texture,
 		batches: ^UiBatches,
+		clipped_to: Aabb,
 	) -> (
 		batch: UiBatch,
 	) {
@@ -997,7 +1014,7 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 				end_idx    = -1,
 				kind       = kind,
 				texture    = texture,
-				clipped_to = Aabb{},
+				clipped_to = clipped_to,
 			}
 		case .Glyph:
 			batch = UiBatch {
@@ -1005,7 +1022,7 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 				end_idx    = -1,
 				kind       = .Glyph,
 				texture    = texture,
-				clipped_to = {},
+				clipped_to = clipped_to,
 			}
 		}
 		return
@@ -1098,10 +1115,23 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	/////////////////////////////////
 	// start actual execution:
 	/////////////////////////////////
+
 	clear_batches(batches)
 	if UI_MEMORY.elements_len == 0 {
 		return
 	}
+
+	Clipping :: struct {
+		end_idx: int,
+		rect:    Aabb,
+	}
+	current_clipping := Clipping {
+		end_idx = UI_MEMORY.elements_len,
+		rect    = {Vec2{0, 0}, Vec2{0, 0}},
+	}
+	clipping_stack: [8]Clipping
+	clipping_stack_len := 0
+
 	first_kind, first_texture := element_batch_requirements(&UI_MEMORY.elements[0])
 	current_batch := UiBatch {
 		start_idx  = 0,
@@ -1111,27 +1141,40 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 		clipped_to = Aabb{},
 	}
 	for i in 0 ..< UI_MEMORY.elements_len {
+
+		for {
+			// pop last element off clipping stack, if we reach end_idx. Can be multiple times if multiple clipping hierarchies end on same idx.
+			if i == current_clipping.end_idx {
+				assert(clipping_stack_len > 0)
+				clipping_stack_len -= 1
+				current_clipping = clipping_stack[clipping_stack_len]
+			} else {
+				break
+			}
+		}
+
 		element := &UI_MEMORY.elements[i]
-
 		kind, texture := element_batch_requirements(element)
-
 
 		// in case where we are in a rect batch where the current elements all have nil texture, but this one has a texture,
 		// we can still keep them in one batch, but update the batches texture pointer.
 		// the information which rect should sample the texture and which should not is available per vertex via flag TEXTURED.
-		switch &e in element {
+
+
+		#partial switch &e in element {
 		case DivWithComputed:
 			if e.texture.texture != nil &&
 			   current_batch.kind == .Rect &&
 			   current_batch.texture == nil {
 				current_batch.texture = e.texture.texture
 			}
-		case TextWithComputed:
 		}
 
 		// allow rects with nil texture and some texture in the same batch, specify if rect is textureless on a per-vertex basis.
 		incompatible :=
-			kind != current_batch.kind || (texture != nil && texture != current_batch.texture)
+			kind != current_batch.kind ||
+			(texture != nil && texture != current_batch.texture) ||
+			current_clipping.rect != current_batch.clipped_to
 
 		if incompatible {
 			end_batch(&current_batch, batches)
@@ -1141,18 +1184,32 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 			if current_batch.start_idx != current_batch.end_idx {
 				// 99% normal case:
 				append(&batches.batches, current_batch)
-				current_batch = new_batch(kind, texture, batches)
+				current_batch = new_batch(kind, texture, batches, current_clipping.rect)
 			} else {
 				// current batch is empty: 
 				batches_len := len(batches.batches)
 				if batches_len != 0 && batches.batches[batches_len - 1].kind == kind {
 					current_batch = pop(&batches.batches)
 				} else {
-					current_batch = new_batch(kind, texture, batches)
+					current_batch = new_batch(kind, texture, batches, current_clipping.rect)
 				}
 			}
 		}
 		add_primitives(element, batches)
+
+		// if this div should clip its contents, set the clipping rect:
+		#partial switch &e in element {
+		case DivWithComputed:
+			if .ClipContent in e.flags {
+
+				clipping_stack[clipping_stack_len] = current_clipping
+				clipping_stack_len += 1
+				current_clipping = Clipping {
+					end_idx = i + e.skipped,
+					rect    = Aabb{e.pos, e.pos + e.size},
+				}
+			}
+		}
 	}
 	end_batch(&current_batch, batches)
 	if current_batch.start_idx != current_batch.end_idx {
@@ -1184,14 +1241,16 @@ ui_renderer_render :: proc(
 	rend: ^UiRenderer,
 	render_pass: wgpu.RenderPassEncoder,
 	globals_bind_group: wgpu.BindGroup,
+	screen_size: UVec2,
 ) {
+	screen_size_f32 := Vec2{f32(screen_size.x), f32(screen_size.y)}
+	NO_CLIPPING_RECT :: Aabb{{0, 0}, {0, 0}}
 	if len(rend.batches.batches) == 0 {
 		return
 	}
 	last_kind := rend.batches.batches[0].kind
 	pipeline: ^RenderPipeline = nil
 	for &batch in rend.batches.batches {
-		// print("     render batch: ", batch.kind)
 		if batch.kind != last_kind || pipeline == nil {
 			last_kind = batch.kind
 			switch batch.kind {
@@ -1200,7 +1259,25 @@ ui_renderer_render :: proc(
 			case .Glyph:
 				pipeline = &rend.glyph_pipeline
 			}
-			// wgpu.RenderPassEncoderSetScissorRect()
+
+			if batch.clipped_to != NO_CLIPPING_RECT {
+				// convert clipping rect from layout to screen space and then set it:
+				min_f32 := layout_to_screen_space(batch.clipped_to.min, screen_size_f32)
+				max_f32 := layout_to_screen_space(batch.clipped_to.max, screen_size_f32)
+				min_x := u32(min_f32.x)
+				min_y := u32(min_f32.y)
+				width_x := u32(max_f32.x) - min_x
+				width_y := u32(max_f32.y) - min_y
+				wgpu.RenderPassEncoderSetScissorRect(render_pass, min_x, min_y, width_x, width_y)
+			} else {
+				wgpu.RenderPassEncoderSetScissorRect(
+					render_pass,
+					0,
+					0,
+					screen_size.x,
+					screen_size.y,
+				)
+			}
 			wgpu.RenderPassEncoderSetPipeline(render_pass, pipeline.pipeline)
 			wgpu.RenderPassEncoderSetBindGroup(render_pass, 0, globals_bind_group)
 			switch batch.kind {
@@ -1255,18 +1332,23 @@ ui_renderer_render :: proc(
 	}
 }
 
+
+screen_to_layout_space :: proc(pt: Vec2, screen_size: Vec2) -> Vec2 {
+	return pt * (f32(SCREEN_REFERENCE_SIZE.y) / screen_size.y)
+}
+
+layout_to_screen_space :: proc(pt: Vec2, screen_size: Vec2) -> Vec2 {
+	return pt * (screen_size.y / f32(SCREEN_REFERENCE_SIZE.y))
+}
+
 ui_renderer_start_frame :: proc(rend: ^UiRenderer, screen_size: Vec2, input: ^Input) {
 	cache := &rend.cache
 	cache.mouse_buttons = input.mouse_buttons
-	scale_factor := f32(SCREEN_REFERENCE_SIZE.y) / screen_size.y
 	cache.layout_extent = Vec2 {
 		f32(SCREEN_REFERENCE_SIZE.y) * screen_size.x / screen_size.y,
 		f32(SCREEN_REFERENCE_SIZE.y),
 	}
-	cache.cursor_pos = Vec2 {
-		f32(input.cursor_pos.x) * scale_factor,
-		f32(input.cursor_pos.y) * scale_factor,
-	}
+	cache.cursor_pos = screen_to_layout_space(input.cursor_pos, screen_size)
 	ui_start_frame(cache)
 }
 
@@ -1302,8 +1384,6 @@ ui_renderer_create :: proc(
 
 	rend.glyph_pipeline.config = ui_glyph_pipeline_config(device, globals_layout)
 	render_pipeline_create_panic(&rend.glyph_pipeline, device, reg)
-
-	print(default_font_path)
 	font, err := font_create(default_font_path, device, queue)
 	if err != nil {
 		fmt.panicf("Could not load font from: %s", default_font_path)

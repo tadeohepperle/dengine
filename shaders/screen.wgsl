@@ -15,7 +15,7 @@ fn vs_main(
         f32(vi & 2u),
     );
     out.clip_position = vec4<f32>(out.uv * 2.0 - 1.0, 0.0, 1.0);
-    // invert y coordinate so the image is not upside down:
-    // out.uv.y = 1.0 - out.uv.y;
+    // // invert y coordinate so the image is not upside down:
+    out.uv.y = 1.0 - out.uv.y;
     return out;
 }
