@@ -6,9 +6,9 @@ import "core:math"
 import "core:mem"
 import "core:strings"
 
-button :: proc(title: string, id: string = "") -> Interaction {
+button :: proc(title: string, id: string = "") -> BtnInteraction {
 	id := ui_id(id) if id != "" else ui_id(title)
-	res := ui_button_interaction(id)
+	res := ui_btn_interaction(id)
 
 	color: Color = ---
 	if res.is_pressed {
@@ -38,7 +38,7 @@ button :: proc(title: string, id: string = "") -> Interaction {
 
 toggle :: proc(value: ^bool, title: string) {
 	id := u64(uintptr(value))
-	res := ui_button_interaction(id)
+	res := ui_btn_interaction(id)
 	active := value^
 	if res.just_released {
 		active = !active
@@ -91,13 +91,12 @@ slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 	slider_width: f32 = 200
 	knob_width: f32 = 24
 
-
 	cache: ^UiCache = UI_MEMORY.cache
 	id := u64(uintptr(value))
 	val: f32 = value^
 
 	f := (val - min) / (max - min)
-	res := ui_button_interaction(id)
+	res := ui_btn_interaction(id)
 	if res.just_pressed {
 		cached_div := cache.cached[id]
 		print(cached_div.pos, cached_div.size)
@@ -146,7 +145,6 @@ slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 	end_div()
 }
 
-
 WINDOW_BG := color_from_hex("#262630")
 
 end_window :: proc() {
@@ -157,7 +155,7 @@ start_window :: proc(title: string) {
 	id := ui_id(title)
 	cache := UI_MEMORY.cache
 	assert(UI_MEMORY.parent_stack_len == 0)
-	res := ui_button_interaction(id)
+	res := ui_btn_interaction(id)
 	if res.just_pressed {
 		cache.active_value.window_pos_start_drag = UI_MEMORY.cache.cached[id].pos
 	}
@@ -223,26 +221,46 @@ DO_SOMETHING := proc(t: string) {
 StringBuilder :: strings.Builder
 text_edit :: proc(value: ^strings.Builder) {
 
+	id := u64(uintptr(value))
+	res := ui_focus_interaction(id)
+
 	input := UI_MEMORY.cache.input
-	for c in input.chars[:input.chars_len] {
-		strings.write_rune(value, c)
-	}
-	if .JustPressed in input.keys[.BACKSPACE] || .JustRepeated in input.keys[.BACKSPACE] {
-		if strings.builder_len(value^) > 0 {
-			strings.pop_rune(value)
+
+	if res.is_focused {
+		for c in input.chars[:input.chars_len] {
+			strings.write_rune(value, c)
 		}
-		print(strings.to_string(value^))
+		if .JustPressed in input.keys[.BACKSPACE] || .JustRepeated in input.keys[.BACKSPACE] {
+			if strings.builder_len(value^) > 0 {
+				strings.pop_rune(value)
+			}
+			print(strings.to_string(value^))
+		}
 	}
+
 	text_str := strings.to_string(value^)
+	bg_color := color_gray(0.4) if res.is_focused else color_gray(0.2)
 	start_div(
 		Div {
-			width = 200,
-			height = 32,
-			flags = {.WidthPx, .HeightPx},
-			color = color_gray(0.4),
+			id = id,
+			width = 400,
+			height = 300,
+			flags = {.WidthPx, .HeightPx, .MainAlignCenter, .LayoutAsText},
+			color = bg_color,
 			border_radius = {4, 4, 4, 4},
 		},
 	)
+	text(
+		Text {
+			str = text_str,
+			color = Color_Black,
+			font_size = 18.0,
+			shadow = 0.0,
+			align = .Right,
+			line_break = .Never,
+		},
+	)
+	div(Div{width = 8, height = 8, color = Color_Chocolate, flags = {.WidthPx, .HeightPx}})
 	text(
 		Text {
 			str = text_str,
@@ -272,7 +290,7 @@ enum_radio :: proc(value: ^$T, title: string = "") where intrinsics.type_is_enum
 		str := fmt.aprint(variant, allocator = context.temp_allocator)
 		id := ui_id(str) ~ u64(uintptr(value))
 
-		res := ui_button_interaction(id)
+		res := ui_btn_interaction(id)
 		if res.just_pressed {
 			value^ = variant
 		}

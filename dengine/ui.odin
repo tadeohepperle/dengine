@@ -17,61 +17,84 @@ ui_id :: proc(str: string) -> UI_ID {
 	return hash.crc64_xz(transmute([]byte)str)
 }
 
-Interaction :: struct {
+BtnInteraction :: struct {
 	just_pressed:  bool,
 	is_hovered:    bool,
 	is_pressed:    bool,
 	just_released: bool,
 }
 
-ui_button_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (res: Interaction) {
-	cache := UI_MEMORY.cache
-	cached, ok := cache.cached[id]
-
-	if !ok {
-		return Interaction{}
-	}
-	press := cache.input.mouse_buttons[.Left]
-
-	is_hovered := cache.hovered_id == id
-	if is_hovered {
-		res.is_hovered = true
-	}
-	if cache.hot_active_id == id {
-		if cache.is_active {
-			// ACTIVE
-			res.is_pressed = true
-			if .JustReleased in press {
-				if is_hovered {
-					res.just_released = true
-					cache.is_active = false
-				} else {
-					cache.hot_active_id = 0
-				}
-			}
-		} else {
-			// HOT
-			if is_hovered {
-				if .JustPressed in press {
-					res.is_pressed = true
-					res.just_pressed = true
-					cache.is_active = true
-					cache.cursor_pos_start_active = cache.cursor_pos
-				}
-			} else {
-				cache.hot_active_id = 0
-			}
-		}
-	} else {
-		// NONE
-		if is_hovered && cache.hot_active_id == 0 {
-			cache.hot_active_id = id
-			cache.is_active = false
-		}
-	}
-	return
+FocusInteraction :: struct {
+	just_focused:   bool,
+	just_unfocused: bool,
+	is_focused:     bool,
+	is_hovered:     bool,
+	is_pressed:     bool,
 }
 
+ui_focus_interaction :: proc(
+	id: UI_ID,
+	cache: ^UiCache = UI_MEMORY.cache,
+) -> (
+	res: FocusInteraction,
+) {
+	cache := UI_MEMORY.cache
+	cached, ok := cache.cached[id]
+	if !ok {
+		return FocusInteraction{}
+	}
+	press := cache.input.mouse_buttons[.Left]
+	res.is_hovered = cache.hovered_id == id
+	res.is_pressed = .Pressed in press && res.is_hovered
+	if cache.active_id == 0 {
+		if res.is_pressed {
+			cache.active_id = id
+			res.just_focused = true
+			res.is_focused = true
+		}
+	}
+
+	if cache.active_id == id {
+		if .JustPressed in press && !res.is_hovered {
+			cache.active_id = 0
+		} else {
+			res.is_focused = true
+		}
+
+	}
+
+	return res
+}
+
+ui_btn_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (res: BtnInteraction) {
+	cache := UI_MEMORY.cache
+	cached, ok := cache.cached[id]
+	if !ok {
+		return BtnInteraction{}
+	}
+	press := cache.input.mouse_buttons[.Left]
+	res.is_hovered = cache.hovered_id == id
+
+	if cache.active_id == id {
+		res.is_pressed = true
+		if .JustReleased in press {
+			if res.is_hovered {
+				res.just_released = true
+			}
+			res.is_pressed = false
+			cache.active_id = 0
+		}
+	}
+
+	if res.is_hovered && .JustPressed in press {
+		res.is_pressed = true
+		res.just_pressed = true
+		cache.active_id = id
+		cache.cursor_pos_start_active = cache.cursor_pos
+	}
+
+	return res
+}
 
 ActiveValue :: struct #raw_union {
 	slider_value_start_drag: f32,
@@ -81,8 +104,7 @@ ActiveValue :: struct #raw_union {
 UiCache :: struct {
 	cached:                  map[UI_ID]CachedDiv,
 	hovered_id:              UI_ID, // determined by cache at start of frame.
-	hot_active_id:           UI_ID, // if "" -> none.
-	is_active:               bool, // refers to hot_active_id: if false -> hot, if true -> active
+	active_id:               UI_ID,
 	cursor_pos_start_active: Vec2,
 	active_value:            ActiveValue,
 	input:                   ^Input,
@@ -197,11 +219,12 @@ DivWithComputed :: struct {
 }
 
 TextWithComputed :: struct {
-	using text:       Text,
-	pos:              Vec2, // computed
-	size:             Vec2, // computed
-	glyphs_start_idx: int,
-	glyphs_end_idx:   int,
+	using text:          Text,
+	pos:                 Vec2, // computed
+	size:                Vec2, // computed
+	glyphs_start_idx:    int,
+	glyphs_end_idx:      int,
+	tmp_text_layout_ctx: ^TextLayoutCtx,
 }
 
 Div :: struct {
@@ -537,8 +560,9 @@ set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
 set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) {
 	if text.str == "" {return}
 	ctx := tmp_text_layout_ctx(max_size, 0.0, text.align)
-	layout_text_in_text_ctx(&ctx, text)
-	text.size = finalize_text_layout_ctx_and_return_size(&ctx)
+	layout_text_in_text_ctx(ctx, text)
+	text.size = finalize_text_layout_ctx_and_return_size(ctx)
+	text.tmp_text_layout_ctx = ctx
 }
 
 set_size_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -> (skipped: int) {
@@ -618,10 +642,10 @@ set_child_sizes_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -
 		for _ in 0 ..< div.child_count {
 			c_idx := i + skipped
 			element := &UI_MEMORY.elements[c_idx]
-			ch_skip := layout_element_in_text_ctx(&ctx, c_idx, element)
+			ch_skip := layout_element_in_text_ctx(ctx, c_idx, element)
 			skipped += ch_skip
 		}
-		div.content_size = finalize_text_layout_ctx_and_return_size(&ctx)
+		div.content_size = finalize_text_layout_ctx_and_return_size(ctx)
 	} else {
 		// perform normal layout:
 		div.content_size = Vec2{0, 0}
@@ -893,8 +917,9 @@ tmp_text_layout_ctx :: proc(
 	max_size: Vec2,
 	additional_line_gap: f32,
 	align: TextAlign,
-) -> TextLayoutCtx {
-	return TextLayoutCtx {
+) -> ^TextLayoutCtx {
+	ctx := new(TextLayoutCtx, allocator = context.temp_allocator)
+	ctx^ = TextLayoutCtx {
 		max_size = max_size,
 		max_width = f32(max_size.x),
 		additional_line_gap = additional_line_gap,
@@ -913,6 +938,7 @@ tmp_text_layout_ctx :: proc(
 		),
 		align = align,
 	}
+	return ctx
 }
 
 
@@ -939,7 +965,19 @@ set_child_positions_for_div_with_text_layout :: proc(
 ) -> (
 	skipped: int,
 ) {
-	panic("divs with .LayoutAsText are not supported yet...")
+	/// WARNING: THIS IS STILL EXPERIMENTAL AND SHOULD PROBABLY NOT BE USED!!! MANY CASES NOT HANDLED, LAYOUT ATTRIBUTES ON PARENT DIV IGNORED.
+	skipped = 1
+	for _ in 0 ..< div.child_count {
+		c_idx := i + skipped
+		switch &child in &UI_MEMORY.elements[c_idx] {
+		case DivWithComputed:
+			skipped += set_position_for_div(c_idx, &child, child.pos + div.pos)
+		case TextWithComputed:
+			set_position_for_text(&child, child.pos + div.pos)
+			skipped += 1
+		}
+	}
+	return skipped
 }
 
 set_child_positions_for_div :: proc(i: int, div: ^DivWithComputed) -> (skipped: int) {
