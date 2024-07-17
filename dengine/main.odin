@@ -79,7 +79,7 @@ main :: proc() {
 
 		toggle(&open, "show panel")
 		if open {
-			div(Div{padding = {10, 10, 10, 10}, color = Color_Yellow})
+			div(Div{padding = {10, 10, 10, 10}, color = Color_Blue})
 			start_children()
 			text(Text{str = "Hello!", font_size = 100, color = Color_White})
 			end_children()

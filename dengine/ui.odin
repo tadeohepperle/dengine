@@ -143,10 +143,11 @@ UiVertex :: struct {
 }
 
 UiBatch :: struct {
-	start_idx: int,
-	end_idx:   int,
-	kind:      UiBatchKind,
-	texture:   ^Texture,
+	start_idx:  int,
+	end_idx:    int,
+	kind:       UiBatchKind,
+	texture:    ^Texture,
+	clipped_to: Aabb,
 }
 
 UiBatchKind :: enum {
@@ -179,11 +180,12 @@ UiElement :: union {
 }
 
 DivWithComputed :: struct {
-	using div:    Div,
-	pos:          Vec2, // computed
-	size:         Vec2, // computed
-	content_size: Vec2, // computed
-	child_count:  int,
+	using div:         Div,
+	pos:               Vec2, // computed
+	size:              Vec2, // computed
+	content_size:      Vec2, // computed
+	child_count:       int, // direct children of this Div
+	child_count_total: int, // number elements in the hierarchy under this div.
 }
 
 TextWithComputed :: struct {
@@ -258,6 +260,7 @@ DivFlag :: enum {
 	Absolute,
 	LayoutAsText,
 	Animate,
+	ClipChildren,
 }
 
 ui_start_frame :: proc(cache: ^UiCache) {
@@ -963,7 +966,7 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	// define helper functions:
 	/////////////////////////////////
 
-	element_batch_kind_and_texture :: #force_inline proc(
+	element_batch_requirements :: #force_inline proc(
 		element: ^UiElement,
 	) -> (
 		kind: UiBatchKind,
@@ -990,17 +993,19 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 		switch kind {
 		case .Rect:
 			batch = UiBatch {
-				start_idx = len(batches.indices),
-				end_idx   = -1,
-				kind      = kind,
-				texture   = texture,
+				start_idx  = len(batches.indices),
+				end_idx    = -1,
+				kind       = kind,
+				texture    = texture,
+				clipped_to = Aabb{},
 			}
 		case .Glyph:
 			batch = UiBatch {
-				start_idx = len(batches.glyphs_instances),
-				end_idx   = -1,
-				kind      = .Glyph,
-				texture   = texture,
+				start_idx  = len(batches.glyphs_instances),
+				end_idx    = -1,
+				kind       = .Glyph,
+				texture    = texture,
+				clipped_to = {},
 			}
 		}
 		return
@@ -1097,16 +1102,18 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	if UI_MEMORY.elements_len == 0 {
 		return
 	}
-	first_kind, first_texture := element_batch_kind_and_texture(&UI_MEMORY.elements[0])
+	first_kind, first_texture := element_batch_requirements(&UI_MEMORY.elements[0])
 	current_batch := UiBatch {
-		start_idx = 0,
-		end_idx   = -1,
-		kind      = first_kind,
-		texture   = first_texture,
+		start_idx  = 0,
+		end_idx    = -1,
+		kind       = first_kind,
+		texture    = first_texture,
+		clipped_to = Aabb{},
 	}
 	for i in 0 ..< UI_MEMORY.elements_len {
 		element := &UI_MEMORY.elements[i]
-		kind, texture := element_batch_kind_and_texture(element)
+
+		kind, texture := element_batch_requirements(element)
 
 
 		// in case where we are in a rect batch where the current elements all have nil texture, but this one has a texture,
@@ -1128,8 +1135,6 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 
 		if incompatible {
 			end_batch(&current_batch, batches)
-
-
 			// handle empty batches differently: 
 			// if last batch before empty batch actually fits again, pop it and put it as current batch again
 			// (the empty batch would otherwise create a hole between two matching batches)
@@ -1195,7 +1200,7 @@ ui_renderer_render :: proc(
 			case .Glyph:
 				pipeline = &rend.glyph_pipeline
 			}
-
+			// wgpu.RenderPassEncoderSetScissorRect()
 			wgpu.RenderPassEncoderSetPipeline(render_pass, pipeline.pipeline)
 			wgpu.RenderPassEncoderSetBindGroup(render_pass, 0, globals_bind_group)
 			switch batch.kind {

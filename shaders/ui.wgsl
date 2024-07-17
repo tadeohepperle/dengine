@@ -74,10 +74,14 @@ struct VsRectOut {
 // @interpolate(flat) 
 // @interpolate(flat) 
 
-const softness :f32 = 0.8;
+const softness_factor :f32 = SCREEN_REFERENCE_SIZE.y;
 
 @fragment
 fn fs_rect(in: VsRectOut) -> @location(0) vec4<f32> {
+
+
+	let softness = softness_factor / globals.screen_size.y;
+
 	let texture_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.uv);
     let external_distance = rounded_box_sdf(in.rel_pos, in.size, in.border_radius);
     let internal_distance = inset_rounded_box_sdf(in.rel_pos, in.size, in.border_radius, in.border_width);

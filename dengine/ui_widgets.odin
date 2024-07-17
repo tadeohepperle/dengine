@@ -44,10 +44,14 @@ toggle :: proc(value: ^bool, title: string) {
 		value^ = active
 	}
 
+
 	div(Div{flags = {.AxisX}, gap = 8})
 	start_children()
 
 	circle_color := Color_Green if active else Color_Gray
+	if res.is_hovered {
+		circle_color *= 1.5
+	}
 	pill_flags: DivFlags = {.AxisX, .WidthPx, .HeightPx}
 	if active {
 		pill_flags |= {.MainAlignEnd}
@@ -85,6 +89,7 @@ toggle :: proc(value: ^bool, title: string) {
 slider :: proc(value: ^f32, min: f32 = 0, max: f32 = 1) {
 	slider_width: f32 = 200
 	knob_width: f32 = 24
+
 
 	cache: ^UiCache = UI_MEMORY.cache
 	id := u64(uintptr(value))
