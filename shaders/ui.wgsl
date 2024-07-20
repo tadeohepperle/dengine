@@ -4,10 +4,6 @@
 var t_diffuse: texture_2d<f32>;
 @group(1) @binding(1)
 var s_diffuse: sampler;
-const SCREEN_REFERENCE_SIZE: vec2<f32> = vec2<f32>(1920, 1080);
-fn screen_size_r() -> vec2<f32> {
-	return vec2(SCREEN_REFERENCE_SIZE.y * globals.screen_size.x / globals.screen_size.y, SCREEN_REFERENCE_SIZE.y);
-}
 
 struct GlyphInstance {
 	@location(0) pos:    vec2<f32>,
@@ -34,18 +30,18 @@ const RIGHT_VERTEX: u32 = 2u;
 const BOTTOM_VERTEX: u32 = 4u;
 const BORDER: u32 = 8u;
 
+
+
 @vertex
 fn vs_rect(vertex: Vertex) -> VsRectOut {
-	let screen_size_r = vec2(SCREEN_REFERENCE_SIZE.y * globals.screen_size.x / globals.screen_size.y, SCREEN_REFERENCE_SIZE.y);
 	var out: VsRectOut;
-	let ndc = vertex.pos / screen_size_r * 2.0  -1.0;
-	out.clip_position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
+	out.clip_position = ui_layout_pos_to_ndc(vertex.pos);
 	var rel_pos = 0.5 * vertex.size;
     if (vertex.flags & RIGHT_VERTEX) == 0u {
-        rel_pos.y *= -1.;
+        rel_pos.x *= -1.;
     }
     if (vertex.flags & BOTTOM_VERTEX) == 0u {
-        rel_pos.x *= -1.;
+        rel_pos.y *= -1.;
     }
     out.rel_pos = rel_pos;
 	out.size = vertex.size;
@@ -80,16 +76,17 @@ const softness_factor :f32 = SCREEN_REFERENCE_SIZE.y;
 @fragment
 fn fs_rect(in: VsRectOut) -> @location(0) vec4<f32> {
 
-
 	let softness = softness_factor / globals.screen_size.y;
-
+     
 	let texture_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.uv);
-    let external_distance = rounded_box_sdf(in.rel_pos, in.size, in.border_radius);
+    var external_distance = rounded_box_sdf(in.rel_pos, in.size, in.border_radius);
+    external_distance += min(in.border_width.x, 0.0); // little hack that allows you to set a negative border width, to essentially disable smoothing on external edge.
+    // (this hack was important for color gradient meshes that are a bunch of small squares)
     let internal_distance = inset_rounded_box_sdf(in.rel_pos, in.size, in.border_radius, in.border_width);
-	let not_ext_factor = smoothstep(softness,-softness, external_distance);  // antialias(external_distance); //select(1.0 - step(0.0, border_distance), antialias(border_distance), external_distance < internal_distance);
-	let in_factor = smoothstep(-softness,softness, internal_distance);
+	let not_ext_factor = smoothstep(softness,-softness, external_distance);  //  //select(1.0 - step(0.0, border_distance), antialias(border_distance), external_distance < internal_distance);
+	let in_factor = smoothstep(softness, -softness, internal_distance);
 
-	let color  = mix(in.color, in.border_color, in_factor);
+	let color  = mix(in.border_color, in.color, in_factor);
 	let t_color = select(color, color * texture_color, enabled(in.flags, TEXTURED));
 		
 	return vec4(t_color.rgb, saturate(color.a * not_ext_factor));
@@ -132,14 +129,18 @@ fn antialias(distance: f32) -> f32 {
 // SECTION: Glyphs
 // /////////////////////////////////////////////////////////////////////////////
 
+
+fn screen_size_r() -> vec2<f32> {
+	return vec2(SCREEN_REFERENCE_SIZE.y * globals.screen_size.x / globals.screen_size.y, SCREEN_REFERENCE_SIZE.y);
+}
+
 @vertex
 fn vs_glyph(@builtin(vertex_index) vertex_index: u32, instance: GlyphInstance) -> VsGlyphOut {
     let u_uv: vec2<f32> = unit_uv_from_idx(vertex_index);
 	let uv = ((1.0 - u_uv) * instance.uv.xy + u_uv * instance.uv.zw);
 	let v_pos: vec2<f32> = instance.pos + u_uv * instance.size;
 	var out: VsGlyphOut;
-	let ndc = v_pos / screen_size_r() * 2.0  -1.0;
-	out.clip_position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
+	out.clip_position = ui_layout_pos_to_ndc(v_pos);
 	out.color = instance.color;
 	out.uv = uv;
 	out.shadow_intensity = instance.shadow; 

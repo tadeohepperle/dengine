@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:hash"
 import "core:math"
 import "core:math/rand"
+import "core:mem"
 import "core:os"
 import wgpu "vendor:wgpu"
 
@@ -17,56 +18,28 @@ ui_id :: proc(str: string) -> UI_ID {
 	return hash.crc64_xz(transmute([]byte)str)
 }
 
-BtnInteraction :: struct {
-	just_pressed:  bool,
-	is_hovered:    bool,
-	is_pressed:    bool,
-	just_released: bool,
+
+derived_id :: proc(id: UI_ID) -> UI_ID {
+	bytes := transmute([8]u8)id
+	return hash.crc64_xz(bytes[:])
 }
 
-FocusInteraction :: struct {
-	just_focused:   bool,
+BtnInteraction :: struct {
+	just_pressed:   bool,
+	just_released:  bool,
 	just_unfocused: bool,
-	is_focused:     bool,
 	is_hovered:     bool,
 	is_pressed:     bool,
+	is_focused:     bool,
 }
 
-ui_focus_interaction :: proc(
+ui_btn_interaction :: proc(
 	id: UI_ID,
 	cache: ^UiCache = UI_MEMORY.cache,
+	manually_unfocus: bool = false,
 ) -> (
-	res: FocusInteraction,
+	res: BtnInteraction,
 ) {
-	cache := UI_MEMORY.cache
-	cached, ok := cache.cached[id]
-	if !ok {
-		return FocusInteraction{}
-	}
-	press := cache.input.mouse_buttons[.Left]
-	res.is_hovered = cache.hovered_id == id
-	res.is_pressed = .Pressed in press && res.is_hovered
-	if cache.active_id == 0 {
-		if res.is_pressed {
-			cache.active_id = id
-			res.just_focused = true
-			res.is_focused = true
-		}
-	}
-
-	if cache.active_id == id {
-		if .JustPressed in press && !res.is_hovered {
-			cache.active_id = 0
-		} else {
-			res.is_focused = true
-		}
-
-	}
-
-	return res
-}
-
-ui_btn_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (res: BtnInteraction) {
 	cache := UI_MEMORY.cache
 	cached, ok := cache.cached[id]
 	if !ok {
@@ -82,7 +55,18 @@ ui_btn_interaction :: proc(id: UI_ID, cache: ^UiCache = UI_MEMORY.cache) -> (res
 				res.just_released = true
 			}
 			res.is_pressed = false
+			cache.focused_id = id
 			cache.active_id = 0
+		}
+	}
+
+
+	if cache.focused_id == id {
+		if .JustPressed in press && !res.is_hovered && !manually_unfocus {
+			cache.focused_id = 0
+			res.just_unfocused = true
+		} else {
+			res.is_focused = true
 		}
 	}
 
@@ -102,9 +86,10 @@ ActiveValue :: struct #raw_union {
 }
 
 UiCache :: struct {
-	cached:                  map[UI_ID]CachedDiv,
+	cached:                  map[UI_ID]CachedElement,
 	hovered_id:              UI_ID, // determined by cache at start of frame.
 	active_id:               UI_ID,
+	focused_id:              UI_ID,
 	cursor_pos_start_active: Vec2,
 	active_value:            ActiveValue,
 	input:                   ^Input,
@@ -112,13 +97,25 @@ UiCache :: struct {
 	layout_extent:           Vec2,
 }
 
-CachedDiv :: struct {
-	pos:        Vec2,
-	size:       Vec2,
-	color:      Color,
-	z:          int, // todo! right now z is just idx in UI_BUFFER. added later -> on top
-	generation: int,
-	flags:      DivFlags,
+cache_any_active_or_focused :: proc(cache: ^UiCache, ids: []UI_ID) -> bool {
+	for id in ids {
+		if cache.active_id == id || cache.focused_id == id {
+			return true
+		}
+	}
+	return false
+}
+
+ZIndex :: u32
+CachedElement :: struct {
+	pos:                  Vec2,
+	size:                 Vec2,
+	z:                    ZIndex,
+	i:                    int,
+	generation:           int,
+	pointer_pass_through: bool,
+	color:                Color, // todo! replace with #raw_union (DivCached, TextCached, ...)
+	border_color:         Color,
 }
 
 ComputedGlyph :: struct {
@@ -134,10 +131,33 @@ HotActive :: enum {
 }
 
 UiBatches :: struct {
+	primitives: Primitives,
+	batches:    [dynamic]UiBatch,
+}
+
+UiBatch :: struct {
+	start_idx:  int,
+	end_idx:    int,
+	kind:       PrimitiveKind,
+	texture:    ^Texture,
+	clipped_to: Aabb,
+}
+
+PrimitiveKind :: enum {
+	Rect,
+	Glyph,
+}
+
+PreBatch :: struct {
+	end_idx: int,
+	kind:    PrimitiveKind,
+	texture: ^Texture,
+}
+
+Primitives :: struct {
 	vertices:         [dynamic]UiVertex,
 	indices:          [dynamic]u32,
 	glyphs_instances: [dynamic]UiGlyphInstance,
-	batches:          [dynamic]UiBatch,
 }
 
 UiGlyphInstance :: struct {
@@ -163,18 +183,6 @@ UiVertex :: struct {
 	flags:         u32,
 }
 
-UiBatch :: struct {
-	start_idx:  int,
-	end_idx:    int,
-	kind:       UiBatchKind,
-	texture:    ^Texture,
-	clipped_to: Aabb,
-}
-
-UiBatchKind :: enum {
-	Rect,
-	Glyph,
-}
 
 @(private)
 @(thread_local)
@@ -182,7 +190,10 @@ UI_MEMORY: UiMemory
 MAX_UI_ELEMENTS :: 10000
 MAX_GLYPHS :: 100000
 MAX_PARENT_LEVELS :: 124
+MAX_Z_REGIONS :: 1000
 UiMemory :: struct {
+	// todo!: possibly these could be GlyphInstances directly, such that we do not need to copy out of here again when creating the instance for UIBatches. 
+	// For that, make this a dynamic array that is swapped to the ui_batches
 	glyphs:             [MAX_GLYPHS]ComputedGlyph,
 	glyphs_len:         int,
 	elements:           [MAX_UI_ELEMENTS]UiElement,
@@ -195,21 +206,46 @@ UiMemory :: struct {
 	cache:              ^UiCache,
 }
 
+UI_MEMORY_elements :: proc() -> []UiElement {
+	return UI_MEMORY.elements[:UI_MEMORY.elements_len]
+}
 
 Parent :: struct {
 	idx:         int,
 	child_count: int, // number of direct children
 }
 
-UiElement :: union {
+UiElement :: struct {
+	pos:     Vec2, // computed
+	size:    Vec2, // computed
+	z:       ZIndex, // computed: parent.z + this.z_bias
+	id:      UI_ID,
+	variant: UiElementVariant,
+}
+
+UiElementVariant :: union {
 	DivWithComputed,
 	TextWithComputed,
+	CustomUiElement,
 }
+
+CustomUiElement :: struct {
+	set_size:       proc(data: rawptr, max_size: Vec2) -> (used_size: Vec2),
+	add_primitives: proc(
+		data: rawptr,
+		pos: Vec2, // passed here, instead of having another function for set_position
+		size: Vec2, // the size that is also returned in set_size().
+		primitives: ^Primitives,
+		pre_batches: ^[dynamic]PreBatch,
+	),
+	data:           CustomUiElementStorage,
+}
+CustomUiElementStorage :: [128]u8
+
+e := fmt.println(size_of(CustomUiElement))
 
 DivWithComputed :: struct {
 	using div:    Div,
-	pos:          Vec2, // computed
-	size:         Vec2, // computed
 	content_size: Vec2, // computed
 	child_count:  int, // direct children of this Div
 	// number of elements in hierarchy below this, incl. self 
@@ -220,8 +256,6 @@ DivWithComputed :: struct {
 
 TextWithComputed :: struct {
 	using text:          Text,
-	pos:                 Vec2, // computed
-	size:                Vec2, // computed
 	glyphs_start_idx:    int,
 	glyphs_end_idx:      int,
 	tmp_text_layout_ctx: ^TextLayoutCtx,
@@ -236,13 +270,12 @@ Div :: struct {
 	color:             Color,
 	gap:               f32, // gap between children
 	flags:             DivFlags,
-	z_index:           i16,
-	id:                UI_ID,
+	z_bias:            ZIndex,
 	texture:           TextureTile,
 	border_radius:     BorderRadius,
 	border_width:      BorderWidth,
 	border_color:      Color,
-	animation_speed:   f32, //   (lerp speed)
+	lerp_speed:        f32, //   (lerp speed)
 }
 
 Padding :: struct {
@@ -305,34 +338,40 @@ DivFlag :: enum u32 {
 	CrossAlignEnd,
 	Absolute,
 	LayoutAsText,
-	Animate,
+	LerpStyle,
+	LerpTransform,
 	ClipContent,
 	PointerPassThrough, // divs with this are not considered when determinin which div is hovered. useful for divs that need ids to do animation but are on top of other divs that we want to interact with.
 }
 
 ui_start_frame :: proc(cache: ^UiCache) {
+	rand.reset(42)
+	clear_UI_MEMORY()
 	UI_MEMORY.cache = cache
 	// figure out if any ui element with an id is hovered. If many, select the one with highest z value
 	cache.hovered_id = 0
-	cursor_on_div_highest_z := min(int)
+	highest_z := min(ZIndex)
+	highest_z_i := min(int)
 	for id, cached in cache.cached {
-		if cached.z > cursor_on_div_highest_z && .PointerPassThrough not_in cached.flags {
+		if cached.pointer_pass_through {
+			continue
+		}
+		if cached.z > highest_z || cached.z == highest_z && cached.i > highest_z_i {
 			cursor_in_bounds :=
 				cache.cursor_pos.x >= cached.pos.x &&
 				cache.cursor_pos.y >= cached.pos.y &&
 				cache.cursor_pos.x <= cached.pos.x + cached.size.x &&
 				cache.cursor_pos.y <= cached.pos.y + cached.size.y
 			if cursor_in_bounds {
-				cursor_on_div_highest_z = cached.z
+				highest_z = cached.z
+				highest_z_i = cached.i
 				cache.hovered_id = id
 			}
+
 		}
 	}
-
-	rand.reset(42)
-	// clear the ui buffer:
-	clear_UI_MEMORY()
 }
+
 clear_UI_MEMORY :: proc() {
 	UI_MEMORY.elements_len = 0
 	UI_MEMORY.glyphs_len = 0
@@ -349,13 +388,12 @@ ui_end_frame :: proc(batches: ^UiBatches, max_size: Vec2, delta_secs: f32) {
 	layout(max_size)
 	update_ui_cache(UI_MEMORY.cache, delta_secs)
 	build_ui_batches(batches)
-	clear_UI_MEMORY()
-	UI_MEMORY.cache = nil
 	return
 }
 
 DIV_DEFAULT_LERP_SPEED :: 5.0
 
+/// Note: also modifies the Ui-Elements in the UI_Memory to achieve lerping from the last frame.
 update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 	@(thread_local)
 	generation: int
@@ -367,45 +405,58 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 
 
 	for i in 0 ..< UI_MEMORY.elements_len {
-		#partial switch &div in &UI_MEMORY.elements[i] {
+		el := &UI_MEMORY.elements[i]
+		if el.id == 0 {
+			continue
+		}
+		old_cached, has_old_cached := cache.cached[el.id]
+		new_cached: CachedElement = CachedElement {
+			pos        = el.pos,
+			size       = el.size,
+			z          = el.z,
+			i          = i,
+			generation = generation,
+		}
+
+		switch &var in el.variant {
 		case DivWithComputed:
-			if div.id == 0 {
-				continue
-			}
-			cached_div, ok := &cache.cached[div.id]
-			if ok {
-				cached_div.generation = generation
-				cached_div.z = i
-				cached_div.flags = div.flags
-				if DivFlag.Animate in div.flags {
-					lerp_speed := div.animation_speed
+			new_cached.pointer_pass_through = .PointerPassThrough in var.flags
+			if has_old_cached {
+				lerp_style := .LerpStyle in var.flags
+				lerp_transform := .LerpTransform in var.flags
+
+				s: f32 = --- // lerp factor
+				if lerp_style || lerp_transform {
+					lerp_speed := var.lerp_speed
 					if lerp_speed == 0 {
 						lerp_speed = DIV_DEFAULT_LERP_SPEED
 					}
-					s := lerp_speed * delta_secs
-					cached_div.color = lerp(cached_div.color, div.color, s)
-					div.color = cached_div.color
-					cached_div.pos = lerp(cached_div.pos, div.pos, s)
-					div.pos = cached_div.pos
-					cached_div.size = lerp(cached_div.size, div.size, s)
-					div.size = cached_div.size
-				} else {
-					cached_div.color = div.color
-					cached_div.pos = div.pos
-					cached_div.size = div.size
+					s = lerp_speed * delta_secs
 				}
-			} else {
-				cache.cached[div.id] = CachedDiv {
-					pos        = div.pos,
-					size       = div.size,
-					color      = div.color,
-					generation = generation,
-					z          = i,
-					flags      = div.flags,
+
+				if lerp_style {
+					new_cached.color = lerp(old_cached.color, var.color, s)
+					var.color = new_cached.color
+
+					new_cached.border_color = lerp(old_cached.border_color, var.border_color, s)
+					var.border_color = new_cached.border_color
+				} else {
+					new_cached.color = var.color
+					new_cached.border_color = var.border_color
+				}
+				if lerp_transform {
+					new_cached.pos = lerp(old_cached.pos, el.pos, s)
+					el.pos = new_cached.pos
+					new_cached.size = lerp(old_cached.size, el.size, s)
+					el.size = new_cached.size
 				}
 			}
-
+		case TextWithComputed:
+		// no lerping here yet
+		case CustomUiElement:
+		// no lerping here yet
 		}
+		cache.cached[el.id] = new_cached
 	}
 
 	for k, &v in cache.cached {
@@ -420,7 +471,7 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 }
 
 
-_pre_add_div_or_text :: #force_inline proc() {
+_pre_add_ui_element :: #force_inline proc() {
 	if UI_MEMORY.elements_len == MAX_UI_ELEMENTS {
 		fmt.panicf("Too many Ui Elements (MAX_UI_ELEMENTS = %d)!", MAX_UI_ELEMENTS)
 	}
@@ -429,21 +480,52 @@ _pre_add_div_or_text :: #force_inline proc() {
 	}
 }
 
+
+custom_ui_element :: proc(
+	data: $T,
+	set_size: proc(data: ^T, max_size: Vec2) -> (used_size: Vec2),
+	add_primitives: proc(
+		data: ^T,
+		pos: Vec2, // passed here, instead of having another function for set_position
+		size: Vec2, // the size that is also returned in set_size().
+		primitives: ^Primitives,
+		pre_batches: ^[dynamic]PreBatch,
+	),
+	id: UI_ID = 0,
+) where size_of(T) <= size_of(CustomUiElementStorage) {
+	_pre_add_ui_element()
+	custom_element := CustomUiElement {
+		set_size       = auto_cast set_size,
+		add_primitives = auto_cast add_primitives,
+		data           = {},
+	}
+	data_dst: ^T = cast(^T)&custom_element.data
+	data_dst^ = data
+	UI_MEMORY.elements[UI_MEMORY.elements_len] = UiElement {
+		variant = custom_element,
+		id      = id,
+	}
+	UI_MEMORY.elements_len += 1
+
+}
+
 // only used for divs without children, otherwise use `start_div` and `end_div`
-div :: proc(div: Div) {
-	_pre_add_div_or_text()
-	UI_MEMORY.elements[UI_MEMORY.elements_len] = DivWithComputed {
-		div = div,
+div :: proc(div: Div, id: UI_ID = 0) {
+	_pre_add_ui_element()
+	UI_MEMORY.elements[UI_MEMORY.elements_len] = UiElement {
+		variant = DivWithComputed{div = div},
+		id = id,
 	}
 	UI_MEMORY.elements_len += 1
 }
 
 // when called, make sure to call end_div later!
-start_div :: proc(div: Div) {
-	_pre_add_div_or_text()
+start_div :: proc(div: Div, id: UI_ID = 0) {
+	_pre_add_ui_element()
 	idx := UI_MEMORY.elements_len
-	UI_MEMORY.elements[idx] = DivWithComputed {
-		div = div,
+	UI_MEMORY.elements[idx] = UiElement {
+		variant = DivWithComputed{div = div},
+		id = id,
 	}
 	UI_MEMORY.elements_len += 1
 	UI_MEMORY.parent_stack[UI_MEMORY.parent_stack_len] = Parent {
@@ -457,34 +539,35 @@ end_div :: proc() {
 	assert(UI_MEMORY.parent_stack_len > 0, "called end_div too often!")
 	UI_MEMORY.parent_stack_len -= 1
 	parent := UI_MEMORY.parent_stack[UI_MEMORY.parent_stack_len]
-	switch &e in UI_MEMORY.elements[parent.idx] {
+	switch &e in UI_MEMORY.elements[parent.idx].variant {
 	case DivWithComputed:
 		e.child_count = parent.child_count
-	case TextWithComputed:
+	case TextWithComputed, CustomUiElement:
 		panic(
-			"There is an idx pointing to a text element in the parent stack. Text elements cannot be parents.",
+			"There is an idx pointing to a non-div element in the parent stack. Text elements cannot be parents.",
 		)
 	}
 }
 
-
-text_from_struct :: proc(text: Text) {
-	_pre_add_div_or_text()
-	UI_MEMORY.elements[UI_MEMORY.elements_len] = TextWithComputed {
-		text             = text,
-		pos              = {0, 0},
-		size             = {0, 0},
-		glyphs_start_idx = UI_MEMORY.glyphs_len,
-		glyphs_end_idx   = 0,
-	}
+text_from_struct :: proc(text: Text, id: UI_ID = 0) {
+	text := text
 	if text.font == nil {
 		if default_font_is_not_set() {
 			panic(
 				"No default font set! Use set_default_font or profive a font in the Text struct.",
 			)
 		}
-		text := &UI_MEMORY.elements[UI_MEMORY.elements_len].(TextWithComputed)
 		text.font = &UI_MEMORY.default_font
+	}
+	_pre_add_ui_element()
+	UI_MEMORY.elements[UI_MEMORY.elements_len] = UiElement {
+		variant = TextWithComputed {
+			text = text,
+			glyphs_start_idx = UI_MEMORY.glyphs_len,
+			glyphs_end_idx = 0,
+			tmp_text_layout_ctx = nil,
+		},
+		id = id,
 	}
 	UI_MEMORY.elements_len += 1
 }
@@ -494,7 +577,7 @@ text :: proc {
 	text_from_struct,
 }
 
-text_from_string :: proc(text: string) {
+text_from_string :: proc(text: string, id: UI_ID = 0) {
 
 	if default_font_is_not_set() {
 		panic(
@@ -510,6 +593,7 @@ text_from_string :: proc(text: string) {
 			font_size = UI_MEMORY.default_font_size,
 			shadow = 0.0,
 		},
+		id,
 	)
 
 }
@@ -525,62 +609,78 @@ default_font_is_not_set :: #force_inline proc() -> bool {
 layout :: proc(max_size: Vec2) {
 	initial_pos := Vec2{0, 0}
 	i: int = 0
+	z: ZIndex = 0
 	for i < UI_MEMORY.elements_len {
 		element := &UI_MEMORY.elements[i]
-		_size, skipped := set_size(i, element, max_size)
+		skipped := set_size(i, element, max_size, z)
 		set_position(i, element, initial_pos)
 		i += skipped
 	}
 }
 
-set_size :: proc(i: int, element: ^UiElement, max_size: Vec2) -> (size: Vec2, skipped: int) {
-	switch &element in element {
+set_size :: proc(i: int, element: ^UiElement, max_size: Vec2, parent_z: ZIndex) -> (skipped: int) {
+	element.z = parent_z
+	switch &var in element.variant {
 	case DivWithComputed:
-		skipped = set_size_for_div(i, &element, max_size)
-		size = element.size
+		element.z += var.z_bias
+		element.size, skipped = set_size_for_div(i, &var, max_size, element.z)
 	case TextWithComputed:
-		set_size_for_text(&element, max_size)
+		element.size = set_size_for_text(&var, max_size)
 		skipped = 1
-		size = element.size
+	case CustomUiElement:
+		element.size = var.set_size(raw_data(&var.data), max_size)
+		skipped = 1
 	}
 	return
 }
 
 set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
-	switch &element in element {
+	switch &var in element.variant {
 	case DivWithComputed:
-		skipped = set_position_for_div(i, &element, pos)
+		element.pos, skipped = set_position_for_div(i, &var, element.size, pos)
 	case TextWithComputed:
-		set_position_for_text(&element, pos)
+		element.pos = set_position_for_text(&var, pos)
+		skipped = 1
+	case CustomUiElement:
+		element.pos = pos
 		skipped = 1
 	}
 	return
 }
 
-set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) {
-	if text.str == "" {return}
+set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) -> (text_size: Vec2) {
+	if text.str == "" {return Vec2{}}
 	ctx := tmp_text_layout_ctx(max_size, 0.0, text.align)
 	layout_text_in_text_ctx(ctx, text)
-	text.size = finalize_text_layout_ctx_and_return_size(ctx)
+	text_size = finalize_text_layout_ctx_and_return_size(ctx)
 	text.tmp_text_layout_ctx = ctx
+	return
 }
 
-set_size_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -> (skipped: int) {
+set_size_for_div :: proc(
+	i: int,
+	div: ^DivWithComputed,
+	max_size: Vec2,
+	z_of_div: ZIndex,
+) -> (
+	div_size: Vec2,
+	skipped: int,
+) {
 	width_fixed := false
 	if DivFlag.WidthPx in div.flags {
 		width_fixed = true
-		div.size.x = div.width
+		div_size.x = div.width
 	} else if DivFlag.WidthFraction in div.flags {
 		width_fixed = true
-		div.size.x = div.width * max_size.x
+		div_size.x = div.width * max_size.x
 	}
 	height_fixed := false
 	if DivFlag.HeightPx in div.flags {
 		height_fixed = true
-		div.size.y = div.height
+		div_size.y = div.height
 	} else if DivFlag.HeightFraction in div.flags {
 		height_fixed = true
-		div.size.y = div.height * max_size.y
+		div_size.y = div.height * max_size.y
 	}
 	pad_x := div.padding.left + div.padding.right
 	pad_y := div.padding.top + div.padding.bottom
@@ -601,21 +701,21 @@ set_size_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -> (skip
 
 	if width_fixed {
 		if height_fixed {
-			max_size := div.size - Vec2{pad_x, pad_y}
-			skipped = set_child_sizes_for_div(i, div, max_size)
+			max_size := div_size - Vec2{pad_x, pad_y}
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
 		} else {
-			max_size := Vec2{div.size.x - pad_x, max_size.y}
-			skipped = set_child_sizes_for_div(i, div, max_size)
-			div.size.y = div.content_size.y + pad_y
+			max_size := Vec2{div_size.x - pad_x, max_size.y}
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
+			div_size.y = div.content_size.y + pad_y
 		}
 	} else {
 		if height_fixed {
-			max_size := Vec2{max_size.x, div.size.y - pad_y}
-			skipped = set_child_sizes_for_div(i, div, max_size)
-			div.size.x = div.content_size.x + pad_x
+			max_size := Vec2{max_size.x, div_size.y - pad_y}
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
+			div_size.x = div.content_size.x + pad_x
 		} else {
-			skipped = set_child_sizes_for_div(i, div, max_size)
-			div.size = Vec2{div.content_size.x + pad_x, div.content_size.y + pad_y}
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
+			div_size = Vec2{div.content_size.x + pad_x, div.content_size.y + pad_y}
 		}
 	}
 	div.skipped = skipped
@@ -623,16 +723,23 @@ set_size_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -> (skip
 }
 
 absolute_positioning :: proc(element: ^UiElement) -> bool {
-	#partial switch &element in element {
+	#partial switch &var in element.variant {
 	case DivWithComputed:
-		if DivFlag.Absolute in element.flags {
+		if DivFlag.Absolute in var.flags {
 			return true
 		}
 	}
 	return false
 }
 
-set_child_sizes_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -> (skipped: int) {
+set_child_sizes_for_div :: proc(
+	i: int,
+	div: ^DivWithComputed,
+	max_size: Vec2,
+	z_of_div: ZIndex,
+) -> (
+	skipped: int,
+) {
 	skipped = 1
 	axis_is_x := DivFlag.AxisX in div.flags
 
@@ -642,7 +749,7 @@ set_child_sizes_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -
 		for _ in 0 ..< div.child_count {
 			c_idx := i + skipped
 			element := &UI_MEMORY.elements[c_idx]
-			ch_skip := layout_element_in_text_ctx(ctx, c_idx, element)
+			ch_skip := layout_element_in_text_ctx(ctx, c_idx, element, z_of_div)
 			skipped += ch_skip
 		}
 		div.content_size = finalize_text_layout_ctx_and_return_size(ctx)
@@ -652,15 +759,15 @@ set_child_sizes_for_div :: proc(i: int, div: ^DivWithComputed, max_size: Vec2) -
 		for _ in 0 ..< div.child_count {
 			c_idx := i + skipped
 			ch := &UI_MEMORY.elements[c_idx]
-			ch_size, ch_skip := set_size(c_idx, ch, max_size)
+			ch_skip := set_size(c_idx, ch, max_size, z_of_div)
 			skipped += ch_skip
 			if !absolute_positioning(ch) {
 				if axis_is_x {
-					div.content_size.x += ch_size.x
-					div.content_size.y = max(div.content_size.y, ch_size.y)
+					div.content_size.x += ch.size.x
+					div.content_size.y = max(div.content_size.y, ch.size.y)
 				} else {
-					div.content_size.x = max(div.content_size.x, ch_size.x)
-					div.content_size.y += ch_size.y
+					div.content_size.x = max(div.content_size.x, ch.size.x)
+					div.content_size.y += ch.size.y
 				}
 			}
 		}
@@ -682,16 +789,22 @@ layout_element_in_text_ctx :: proc(
 	ctx: ^TextLayoutCtx,
 	i: int,
 	element: ^UiElement,
+	parent_z: ZIndex,
 ) -> (
 	skipped: int,
 ) {
-	switch &element in element {
+	element.z = parent_z
+	switch &var in element.variant {
 	case DivWithComputed:
-		skipped = layout_div_in_text_ctx(ctx, i, &element)
+		element.z += var.z_bias
+		element.size, element.pos, skipped = layout_div_in_text_ctx(ctx, i, &var, element.z)
 	case TextWithComputed:
-		layout_text_in_text_ctx(ctx, &element)
+		layout_text_in_text_ctx(ctx, &var)
 		skipped = 1
+	case CustomUiElement:
+		panic("Custom Ui elements in text not allowed yet.")
 	}
+
 	return
 }
 
@@ -775,17 +888,20 @@ layout_div_in_text_ctx :: proc(
 	ctx: ^TextLayoutCtx,
 	i: int,
 	div: ^DivWithComputed,
+	z_of_div: ZIndex,
 ) -> (
+	div_size: Vec2,
+	div_pos: Vec2,
 	skipped: int,
 ) {
-	skipped = set_size_for_div(i, div, ctx.max_size)
-	line_break_needed := ctx.current_line.advance + div.size.x > ctx.max_width
+	div_size, skipped = set_size_for_div(i, div, ctx.max_size, z_of_div)
+	line_break_needed := ctx.current_line.advance + div_size.x > ctx.max_width
 	if line_break_needed {
 		break_line(ctx)
 	}
 	// assign the x part of the element relative position already, the relative y is assined later, when we know the fine heights of each line.
-	div.pos.x = ctx.current_line.advance
-	ctx.current_line.advance += div.size.x
+	div_pos.x = ctx.current_line.advance
+	ctx.current_line.advance += div_size.x
 	line_idx := len(ctx.lines)
 	append(&ctx.divs_and_their_line_idxs, DivAndLineIdx{div_element_idx = i, line_idx = line_idx})
 	// todo! maybe adjust the line height for the line this div is in 
@@ -838,10 +954,9 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_si
 	for e in ctx.divs_and_their_line_idxs {
 		line := &ctx.lines[e.line_idx]
 		bottom_y := line.baseline_y - line.metrics.descent
-		div := UI_MEMORY.elements[e.div_element_idx].(DivWithComputed)
+		div := UI_MEMORY.elements[e.div_element_idx]
 		div.pos.y = bottom_y - div.size.y
 	} // Todo: Test this, I think I just ported this over from Rust but not sure if divs in text layout are supported yet.
-
 
 	max_size = Vec2{min(max_size.x, max_line_width), min(max_size.y, base_y)}
 
@@ -942,18 +1057,26 @@ tmp_text_layout_ctx :: proc(
 }
 
 
-set_position_for_div :: proc(i: int, div: ^DivWithComputed, pos: Vec2) -> (skipped: int) {
+set_position_for_div :: proc(
+	i: int,
+	div: ^DivWithComputed,
+	div_size: Vec2,
+	pos: Vec2,
+) -> (
+	div_pos: Vec2,
+	skipped: int,
+) {
 	skipped = 1
-	div.pos = pos + div.offset
+	div_pos = pos + div.offset
 
 	if div.child_count == 0 {
 		return
 	}
 
 	if DivFlag.LayoutAsText in div.flags {
-		skipped = set_child_positions_for_div_with_text_layout(i, div)
+		skipped = set_child_positions_for_div_with_text_layout(i, div, div_pos)
 	} else {
-		skipped = set_child_positions_for_div(i, div)
+		skipped = set_child_positions_for_div(i, div, div_size, div_pos)
 	}
 
 	return
@@ -962,6 +1085,7 @@ set_position_for_div :: proc(i: int, div: ^DivWithComputed, pos: Vec2) -> (skipp
 set_child_positions_for_div_with_text_layout :: proc(
 	i: int,
 	div: ^DivWithComputed,
+	div_pos: Vec2,
 ) -> (
 	skipped: int,
 ) {
@@ -969,25 +1093,36 @@ set_child_positions_for_div_with_text_layout :: proc(
 	skipped = 1
 	for _ in 0 ..< div.child_count {
 		c_idx := i + skipped
-		switch &child in &UI_MEMORY.elements[c_idx] {
+		child := &UI_MEMORY.elements[c_idx]
+		switch &var in &child.variant {
 		case DivWithComputed:
-			skipped += set_position_for_div(c_idx, &child, child.pos + div.pos)
+			_, add_skipped := set_position_for_div(c_idx, &var, child.size, child.pos + div_pos)
+			skipped += add_skipped
 		case TextWithComputed:
-			set_position_for_text(&child, child.pos + div.pos)
+			set_position_for_text(&var, child.pos + div_pos)
 			skipped += 1
+		case CustomUiElement:
+			panic("Custom Ui elements in text not supported.")
 		}
 	}
 	return skipped
 }
 
-set_child_positions_for_div :: proc(i: int, div: ^DivWithComputed) -> (skipped: int) {
+set_child_positions_for_div :: proc(
+	i: int,
+	div: ^DivWithComputed,
+	div_size: Vec2,
+	div_pos: Vec2,
+) -> (
+	skipped: int,
+) {
 	skipped = 1
-	pos := div.pos
+	pos := div_pos
 	pad_x := div.padding.left + div.padding.right
 	pad_y := div.padding.top + div.padding.bottom
 
-	inner_size := Vec2{div.size.x - pad_x, div.size.y - pad_y}
-	inner_pos := div.pos + Vec2{div.padding.left, div.padding.top}
+	inner_size := Vec2{div_size.x - pad_x, div_size.y - pad_y}
+	inner_pos := div_pos + Vec2{div.padding.left, div.padding.top}
 
 	main_size: f32 = ---
 	cross_size: f32 = ---
@@ -1029,13 +1164,7 @@ set_child_positions_for_div :: proc(i: int, div: ^DivWithComputed) -> (skipped: 
 	for _ in 0 ..< div.child_count {
 		c_idx := i + skipped
 		element := &UI_MEMORY.elements[c_idx]
-		ch_size: Vec2 = ---
-		switch &element in element {
-		case DivWithComputed:
-			ch_size = element.size
-		case TextWithComputed:
-			ch_size = element.size
-		}
+		ch_size: Vec2 = element.size
 
 		ch_main_size: f32 = ---
 		ch_cross_size: f32 = ---
@@ -1056,7 +1185,8 @@ set_child_positions_for_div :: proc(i: int, div: ^DivWithComputed) -> (skipped: 
 		ch_rel_pos: Vec2 = ---
 		ch_element := &UI_MEMORY.elements[c_idx]
 		if absolute_positioning(ch_element) {
-			ch_rel_pos = (inner_size - ch_size) * ch_element.(DivWithComputed).absolute_unit_pos
+			ch_rel_pos =
+				(inner_size - ch_size) * ch_element.variant.(DivWithComputed).absolute_unit_pos
 		} else {
 			if axis_is_x {
 				ch_rel_pos = Vec2{main_offset, ch_cross_offset}
@@ -1072,15 +1202,13 @@ set_child_positions_for_div :: proc(i: int, div: ^DivWithComputed) -> (skipped: 
 	return
 }
 
-set_position_for_text :: proc(text: ^TextWithComputed, pos: Vec2) {
+set_position_for_text :: proc(text: ^TextWithComputed, pos: Vec2) -> (text_pos: Vec2) {
 	pos := pos + text.offset
-	text.pos = pos
-
+	text_pos = pos
 	for &g in UI_MEMORY.glyphs[text.glyphs_start_idx:text.glyphs_end_idx] {
 		g.pos.x += f32(pos.x)
 		g.pos.y += f32(pos.y)
 	}
-
 	return
 }
 
@@ -1090,133 +1218,22 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	// define helper functions:
 	/////////////////////////////////
 
-	element_batch_requirements :: #force_inline proc(
-		element: ^UiElement,
-	) -> (
-		kind: UiBatchKind,
-		texture: ^Texture,
-	) {
-		switch element in element {
-		case DivWithComputed:
-			kind = .Rect
-			texture = element.texture.texture // can be nil for untextured ones...
-		case TextWithComputed:
-			kind = .Glyph
-			texture = element.font.texture
-		}
-		return
+	is_compatible :: #force_inline proc(
+		batch: ^UiBatch,
+		pre: ^PreBatch,
+		current_clipping_rect: Aabb,
+	) -> bool {
+
+		return(
+			batch.kind == pre.kind &&
+			(batch.texture == nil || pre.texture == nil || pre.texture == batch.texture) &&
+			(batch.clipped_to == current_clipping_rect) \
+		)
 	}
 
-	new_batch :: #force_inline proc(
-		kind: UiBatchKind,
-		texture: ^Texture,
-		batches: ^UiBatches,
-		clipped_to: Aabb,
-	) -> (
-		batch: UiBatch,
-	) {
-		switch kind {
-		case .Rect:
-			batch = UiBatch {
-				start_idx  = len(batches.indices),
-				end_idx    = -1,
-				kind       = kind,
-				texture    = texture,
-				clipped_to = clipped_to,
-			}
-		case .Glyph:
-			batch = UiBatch {
-				start_idx  = len(batches.glyphs_instances),
-				end_idx    = -1,
-				kind       = .Glyph,
-				texture    = texture,
-				clipped_to = clipped_to,
-			}
-		}
-		return
-	}
-
-	end_batch :: #force_inline proc(batch: ^UiBatch, batches: ^UiBatches) {
-		switch batch.kind {
-		case .Rect:
-			batch.end_idx = len(batches.indices)
-		case .Glyph:
-			batch.end_idx = len(batches.glyphs_instances)
-		}
-		return
-	}
-
-	add_primitives :: #force_inline proc(element: ^UiElement, batches: ^UiBatches) {
-		switch &e in element {
-		case DivWithComputed:
-			if e.color == {0, 0, 0, 0} || e.size.x == 0 || e.size.y == 0 {
-				return
-			}
-
-			vertices := &batches.vertices
-			indices := &batches.indices
-			start_v := u32(len(vertices))
-
-			flags_all: u32 = 0
-			if e.texture.texture != nil {
-				flags_all |= UI_VERTEX_FLAG_TEXTURED
-			}
-
-			min_border_radius := min(e.size.x, e.size.y) / 2.0
-			if e.border_radius.top_left > min_border_radius {
-				e.border_radius.top_left = min_border_radius
-			}
-			if e.border_radius.top_right > min_border_radius {
-				e.border_radius.top_right = min_border_radius
-			}
-			if e.border_radius.bottom_right > min_border_radius {
-				e.border_radius.bottom_right = min_border_radius
-			}
-			if e.border_radius.bottom_left > min_border_radius {
-				e.border_radius.bottom_left = min_border_radius
-			}
-
-			vertex := UiVertex {
-				pos           = e.pos,
-				size          = e.size,
-				uv            = e.texture.uv.min,
-				color         = e.color,
-				border_color  = e.border_color,
-				border_radius = e.border_radius,
-				border_width  = e.border_width,
-				flags         = flags_all,
-			}
-			append(vertices, vertex)
-			vertex.pos = {e.pos.x, e.pos.y + e.size.y}
-			vertex.flags = flags_all | UI_VERTEX_FLAG_RIGHT_VERTEX
-			append(vertices, vertex)
-			vertex.pos = e.pos + e.size
-			vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX | UI_VERTEX_FLAG_RIGHT_VERTEX
-			append(vertices, vertex)
-			vertex.pos = {e.pos.x + e.size.x, e.pos.y}
-			vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX
-			append(vertices, vertex)
-
-			append(indices, start_v)
-			append(indices, start_v + 1)
-			append(indices, start_v + 2)
-			append(indices, start_v)
-			append(indices, start_v + 2)
-			append(indices, start_v + 3)
-
-		case TextWithComputed:
-			for g in UI_MEMORY.glyphs[e.glyphs_start_idx:e.glyphs_end_idx] {
-				append(
-					&batches.glyphs_instances,
-					UiGlyphInstance {
-						pos = g.pos,
-						size = g.size,
-						uv = g.uv,
-						color = e.color,
-						shadow = e.shadow,
-					},
-				)
-			}
+	set_rect_batch_texture_if_nil_before :: #force_inline proc(batch: ^UiBatch, pre: ^PreBatch) {
+		if batch.kind == .Rect && pre.kind == .Rect && batch.texture == nil {
+			batch.texture = pre.texture
 		}
 	}
 
@@ -1240,95 +1257,263 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	clipping_stack: [8]Clipping
 	clipping_stack_len := 0
 
-	first_kind, first_texture := element_batch_requirements(&UI_MEMORY.elements[0])
-	current_batch := UiBatch {
-		start_idx  = 0,
-		end_idx    = -1,
-		kind       = first_kind,
-		texture    = first_texture,
-		clipped_to = Aabb{},
+	current_batch: UiBatch // zero-initialized
+	pre_batches := make([dynamic]PreBatch, allocator = context.temp_allocator)
+
+	ZRange :: struct {
+		z:         ZIndex,
+		start_idx: int,
+		end_idx:   int,
 	}
-	for i in 0 ..< UI_MEMORY.elements_len {
+	// z_ranges is a list of ranges of elements that is always sorted after z, start_idx.
+	// first, we see all elements as one range, but whenever we encounter an element that has a higher z 
+	// value than the current range we operate on, we create a new range for the entire subtree of that
+	// element. This entire subtree is only handled after the original element range is done.
+	// of course this subtree can contain other ranges again and so on, and so on.
+	// Every UI element is still only visited once or max. twice (if opens a new z_range).
+	// 
+	// Current limitation: only positive z-index and z-bias work, we can only raise the level of elements, not lower them.
+	z_ranges := make([dynamic]ZRange, allocator = context.temp_allocator)
+	append(&z_ranges, ZRange{start_idx = 0, end_idx = UI_MEMORY.elements_len, z = 0})
 
-		for {
-			// pop last element off clipping stack, if we reach end_idx. Can be multiple times if multiple clipping hierarchies end on same idx.
-			if i == current_clipping.end_idx {
-				assert(clipping_stack_len > 0)
-				clipping_stack_len -= 1
-				current_clipping = clipping_stack[clipping_stack_len]
-			} else {
-				break
-			}
-		}
+	n_indices := 0
+	n_glyphs := 0
 
-		element := &UI_MEMORY.elements[i]
-		kind, texture := element_batch_requirements(element)
+	for len(z_ranges) > 0 {
+		z_range := pop(&z_ranges)
+		for i := z_range.start_idx; i < z_range.end_idx; i += 1 {
+			element := &UI_MEMORY.elements[i]
+			if element.z > z_range.z {
+				new_range := ZRange {
+					start_idx = i,
+					end_idx   = i + 1,
+					z         = element.z,
+				}
+				#partial switch var in element.variant {
+				case DivWithComputed:
+					new_range.end_idx = i + var.skipped
+					i += var.skipped - 1 // skip over entire subtree and handle this subtree after all other elements have been handled.
+				}
 
-		// in case where we are in a rect batch where the current elements all have nil texture, but this one has a texture,
-		// we can still keep them in one batch, but update the batches texture pointer.
-		// the information which rect should sample the texture and which should not is available per vertex via flag TEXTURED.
-
-
-		#partial switch &e in element {
-		case DivWithComputed:
-			if e.texture.texture != nil &&
-			   current_batch.kind == .Rect &&
-			   current_batch.texture == nil {
-				current_batch.texture = e.texture.texture
-			}
-		}
-
-		// allow rects with nil texture and some texture in the same batch, specify if rect is textureless on a per-vertex basis.
-		incompatible :=
-			kind != current_batch.kind ||
-			(texture != nil && texture != current_batch.texture) ||
-			current_clipping.rect != current_batch.clipped_to
-
-		if incompatible {
-			end_batch(&current_batch, batches)
-			// handle empty batches differently: 
-			// if last batch before empty batch actually fits again, pop it and put it as current batch again
-			// (the empty batch would otherwise create a hole between two matching batches)
-			if current_batch.start_idx != current_batch.end_idx {
-				// 99% normal case:
-				append(&batches.batches, current_batch)
-				current_batch = new_batch(kind, texture, batches, current_clipping.rect)
-			} else {
-				// current batch is empty: 
-				batches_len := len(batches.batches)
-				if batches_len != 0 && batches.batches[batches_len - 1].kind == kind {
-					current_batch = pop(&batches.batches)
+				// find position in ranges to insert this z section: z_ranges should be sorted after z and start_idx
+				insert_idx := -1
+				for r, i in z_ranges {
+					if r.z >= new_range.z && r.start_idx > new_range.start_idx {
+						insert_idx := i
+						break
+					}
+				}
+				if insert_idx != -1 {
+					inject_at(&z_ranges, insert_idx, new_range)
 				} else {
-					current_batch = new_batch(kind, texture, batches, current_clipping.rect)
+					append(&z_ranges, new_range)
+				}
+				continue
+			}
+
+
+			add_primitives(element, &batches.primitives, &pre_batches)
+
+			// pop last element off clipping stack, if we reach end_idx. Can be multiple times if multiple clipping hierarchies end on same idx.
+			for {
+				if i == current_clipping.end_idx {
+					assert(clipping_stack_len > 0)
+					clipping_stack_len -= 1
+					current_clipping = clipping_stack[clipping_stack_len]
+				} else {
+					break
 				}
 			}
-		}
-		add_primitives(element, batches)
 
-		// if this div should clip its contents, set the clipping rect:
-		#partial switch &e in element {
-		case DivWithComputed:
-			if .ClipContent in e.flags {
+			for &next in pre_batches {
+				// in case where we are in a rect batch where the current elements all have nil texture, but this one has a texture,
+				// we can still keep them in one batch, but update the batches texture pointer.
+				// the information which rect should sample the texture and which should not is available per vertex via flag TEXTURED.
 
-				clipping_stack[clipping_stack_len] = current_clipping
-				clipping_stack_len += 1
-				current_clipping = Clipping {
-					end_idx = i + e.skipped,
-					rect    = Aabb{e.pos, e.pos + e.size},
+				if is_compatible(&current_batch, &next, current_clipping.rect) {
+					set_rect_batch_texture_if_nil_before(&current_batch, &next)
+				} else {
+					switch current_batch.kind {
+					case .Rect:
+						current_batch.end_idx = n_indices
+					case .Glyph:
+						current_batch.end_idx = n_glyphs
+					}
+
+					// add the current batch to batches if not empty:
+					next_batch_can_be_batch_before_current := false
+					if current_batch.end_idx == current_batch.start_idx {
+						batches_len := len(batches.batches)
+						if batches_len != 0 {
+							last_batch := &batches.batches[batches_len - 1]
+							if is_compatible(last_batch, &next, current_clipping.rect) {
+								next_batch_can_be_batch_before_current = true
+							}
+						}
+					} else {
+						append(&batches.batches, current_batch)
+					}
+
+					if next_batch_can_be_batch_before_current {
+						current_batch = pop(&batches.batches)
+					} else {
+						start_idx: int = ---
+						switch next.kind {
+						case .Rect:
+							start_idx = n_indices
+						case .Glyph:
+							start_idx = n_glyphs
+						}
+
+						current_batch = UiBatch {
+							start_idx  = start_idx,
+							end_idx    = start_idx,
+							kind       = next.kind,
+							texture    = next.texture,
+							clipped_to = current_clipping.rect,
+						}
+					}
+				}
+				switch next.kind {
+				case .Rect:
+					n_indices = next.end_idx
+				case .Glyph:
+					n_glyphs = next.end_idx
+				}
+
+			}
+			clear(&pre_batches)
+
+			// if this div clips its contents, set the clipping rect:
+			#partial switch &e in element.variant {
+			case DivWithComputed:
+				if .ClipContent in e.flags {
+					clipping_stack[clipping_stack_len] = current_clipping
+					clipping_stack_len += 1
+					current_clipping = Clipping {
+						end_idx = i + e.skipped,
+						rect    = Aabb{element.pos, element.pos + element.size},
+					}
 				}
 			}
 		}
 	}
-	end_batch(&current_batch, batches)
+
+
+	// end the last batch and append it if not empty:
+	switch current_batch.kind {
+	case .Rect:
+		current_batch.end_idx = n_indices
+	case .Glyph:
+		current_batch.end_idx = n_glyphs
+	}
 	if current_batch.start_idx != current_batch.end_idx {
 		append(&batches.batches, current_batch)
+	}
+
+
+	// os.write_entire_file("batches.txt", transmute([]u8)fmt.aprint(batches))
+	// panic("Done")
+}
+
+add_primitives :: #force_inline proc(
+	element: ^UiElement,
+	primitives: ^Primitives,
+	pre_batches: ^[dynamic]PreBatch, // append only!
+) {
+	switch &e in element.variant {
+	case DivWithComputed:
+		if e.color == {0, 0, 0, 0} || element.size.x == 0 || element.size.y == 0 {
+			return
+		}
+
+		vertices := &primitives.vertices
+		indices := &primitives.indices
+		start_v := u32(len(vertices))
+
+		flags_all: u32 = 0
+		if e.texture.texture != nil {
+			flags_all |= UI_VERTEX_FLAG_TEXTURED
+		}
+
+		min_border_radius := min(element.size.x, element.size.y) / 2.0
+		if e.border_radius.top_left > min_border_radius {
+			e.border_radius.top_left = min_border_radius
+		}
+		if e.border_radius.top_right > min_border_radius {
+			e.border_radius.top_right = min_border_radius
+		}
+		if e.border_radius.bottom_right > min_border_radius {
+			e.border_radius.bottom_right = min_border_radius
+		}
+		if e.border_radius.bottom_left > min_border_radius {
+			e.border_radius.bottom_left = min_border_radius
+		}
+
+		vertex := UiVertex {
+			pos           = element.pos,
+			size          = element.size,
+			uv            = e.texture.uv.min,
+			color         = e.color,
+			border_color  = e.border_color,
+			border_radius = e.border_radius,
+			border_width  = e.border_width,
+			flags         = flags_all,
+		}
+		append(vertices, vertex)
+		vertex.pos = {element.pos.x, element.pos.y + element.size.y}
+		vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX
+		append(vertices, vertex)
+		vertex.pos = element.pos + element.size
+		vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX | UI_VERTEX_FLAG_RIGHT_VERTEX
+		append(vertices, vertex)
+		vertex.pos = {element.pos.x + element.size.x, element.pos.y}
+		vertex.flags = flags_all | UI_VERTEX_FLAG_RIGHT_VERTEX
+		append(vertices, vertex)
+
+		append(indices, start_v)
+		append(indices, start_v + 1)
+		append(indices, start_v + 2)
+		append(indices, start_v)
+		append(indices, start_v + 2)
+		append(indices, start_v + 3)
+
+		append(
+			pre_batches,
+			PreBatch{end_idx = len(primitives.indices), kind = .Rect, texture = e.texture.texture},
+		)
+
+	case TextWithComputed:
+		// todo! seems like we could swap UI_MEMORY.glyphs over to batches directly.
+		for g in UI_MEMORY.glyphs[e.glyphs_start_idx:e.glyphs_end_idx] {
+			append(
+				&primitives.glyphs_instances,
+				UiGlyphInstance {
+					pos = g.pos,
+					size = g.size,
+					uv = g.uv,
+					color = e.color,
+					shadow = e.shadow,
+				},
+			)
+		}
+		append(
+			pre_batches,
+			PreBatch {
+				end_idx = len(primitives.glyphs_instances),
+				kind = .Glyph,
+				texture = e.font.texture,
+			},
+		)
+	case CustomUiElement:
+		e.add_primitives(&e.data, element.pos, element.size, primitives, pre_batches)
 	}
 }
 
 clear_batches :: proc(batches: ^UiBatches) {
-	clear(&batches.vertices)
-	clear(&batches.indices)
-	clear(&batches.glyphs_instances)
+	clear(&batches.primitives.vertices)
+	clear(&batches.primitives.indices)
+	clear(&batches.primitives.glyphs_instances)
 	clear(&batches.batches)
 }
 
@@ -1462,11 +1647,21 @@ ui_renderer_start_frame :: proc(rend: ^UiRenderer, screen_size: Vec2, input: ^In
 
 ui_renderer_end_frame_and_prepare_buffers :: proc(rend: ^UiRenderer, delta_secs: f32) {
 	ui_end_frame(&rend.batches, rend.cache.layout_extent, delta_secs)
-	dynamic_buffer_write(&rend.vertex_buffer, rend.batches.vertices[:], rend.device, rend.queue)
-	dynamic_buffer_write(&rend.index_buffer, rend.batches.indices[:], rend.device, rend.queue)
+	dynamic_buffer_write(
+		&rend.vertex_buffer,
+		rend.batches.primitives.vertices[:],
+		rend.device,
+		rend.queue,
+	)
+	dynamic_buffer_write(
+		&rend.index_buffer,
+		rend.batches.primitives.indices[:],
+		rend.device,
+		rend.queue,
+	)
 	dynamic_buffer_write(
 		&rend.glyph_instance_buffer,
-		rend.batches.glyphs_instances[:],
+		rend.batches.primitives.glyphs_instances[:],
 		rend.device,
 		rend.queue,
 	)
@@ -1581,8 +1776,8 @@ ui_renderer_destroy :: proc(rend: ^UiRenderer) {
 }
 
 ui_batches_destroy :: proc(batches: ^UiBatches) {
-	delete(batches.vertices)
-	delete(batches.indices)
-	delete(batches.glyphs_instances)
+	delete(batches.primitives.vertices)
+	delete(batches.primitives.indices)
+	delete(batches.primitives.glyphs_instances)
 	delete(batches.batches)
 }

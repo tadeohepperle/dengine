@@ -49,6 +49,15 @@ dynamic_buffer_write :: proc(
 	wgpu.QueueWriteBuffer(queue, buffer.buffer, 0, raw_data(elements), used_size)
 }
 
+dynamic_buffer_write_many :: proc(
+	buffer: ^DynamicBuffer($T),
+	element_slices: [][]T,
+	device: wgpu.Device,
+	queue: wgpu.Queue,
+) {
+	panic("todo! not implmeneted")
+}
+
 dynamic_buffer_destroy :: proc(buffer: ^DynamicBuffer($T)) {
 	if buffer.buffer != nil {
 		wgpu.BufferDestroy(buffer.buffer)

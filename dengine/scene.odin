@@ -6,7 +6,6 @@ Scene :: struct {
 	sprites: [dynamic]Sprite,
 }
 
-
 scene_create :: proc() -> ^Scene {
 	scene := new(Scene)
 	scene.camera = Camera {

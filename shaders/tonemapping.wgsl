@@ -6,7 +6,8 @@ var hdr_image: texture_2d<f32>;
 @binding(1)
 var hdr_sampler: sampler;
 
-// 0 is disabled, 1 is aces
+const TONEMAP_DISABLED : u32 = 0u;
+const TONEMAP_ACES : u32 = 1u;
 var<push_constant> tonemap_mode: u32;
 
 
@@ -18,7 +19,7 @@ struct VertexOutput {
 @fragment
 fn fs_main(vs: VertexOutput) -> @location(0) vec4<f32> {
     let color_with_a: vec4<f32> = textureSample(hdr_image, hdr_sampler, vs.uv);
-    if tonemap_mode == 1u{
+    if tonemap_mode == TONEMAP_ACES{
         let color = aces_tone_map(color_with_a.rgb);
         return vec4(color, color_with_a.a);   
     }else{

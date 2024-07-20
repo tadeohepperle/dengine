@@ -49,37 +49,83 @@ color_from_hex :: proc(hex: string) -> Color {
 
 @(private)
 color_map_to_srgb :: proc(u: u8) -> f32 {
-	return math.pow_f32((f32(u) / 255.0 + 0.055) / 1.055, 2.4)
+	return math.pow_f32((f32(u) / 255 + 0.055) / 1.055, 2.4)
+}
+
+
+Hsv :: struct {
+	h: f64,
+	s: f64,
+	v: f64,
+}
+
+Rgb :: struct {
+	r: f64,
+	g: f64,
+	b: f64,
+}
+
+
+// color_to_hsv :: proc(color: Color) -> HsvColor {
+
+highlight :: proc(color: Color, add: f32 = 0.2) -> Color {
+	return color + {add, add, add, 0.0}
+}
+
+
+// see https://docs.rs/color_space/latest/src/color_space/hsv.rs.html
+hsv_to_rgb :: proc(using hsv: Hsv) -> Rgb {
+	range := u8(h / 60.0)
+	c := v * s
+	x := c * (1.0 - abs((math.mod_f64(h / 60.0, 2.0)) - 1.0))
+	m := v - c
+
+	switch range {
+	case 0:
+		return Rgb{(c + m), (x + m), m}
+	case 1:
+		return Rgb{(x + m), (c + m), m}
+	case 2:
+		return Rgb{m, (c + m), (x + m)}
+	case 3:
+		return Rgb{m, (x + m), (c + m)}
+	case 4:
+		return Rgb{(x + m), m, (c + m)}
+	case:
+		return Rgb{(c + m), m, (x + m)}
+	}
+}
+
+
+rbg_to_color :: proc(using rgb: Rgb) -> Color {
+	return Color{f32(r), f32(g), f32(b), 1.0}
+}
+
+rbg_to_hsv :: proc(using rgb: Rgb) -> Hsv {
+	min := min(r, g, b)
+	max := max(r, g, b)
+	delta := max - min
+
+	v: f64 = max
+	s: f64 = delta / max if max > 0.001 else 0.0
+	h2: f64 = 0
+	if delta != 0 {
+		if r == max {
+			h2 = (g - b) / delta
+		} else if g == max {
+			h2 = 2.0 + (b - r) / delta
+		} else {
+			h2 = 4.0 + (r - g) / delta
+		}
+	}
+	h := math.mod_f64((h2 * 60.0) + 360.0, 360.0)
+	return Hsv{h, s, v}
 }
 
 color_from_hsv :: proc(hue: f64, saturation: f64, value: f64) -> Color {
-	is_between :: proc(value: f64, min: f64, max: f64) -> bool {
-		return min <= value && value < max
-	}
-
-	c := value * saturation
-	h := hue / 60.0
-	x := c * (1.0 - abs(math.mod_f64(h, 2.0) - 1.0))
-	m := value - c
-
-	r, g, b := 0.0, 0.0, 0.0
-	if is_between(h, 0.0, 1.0) {
-		r, g, b = c, x, 0.0
-	} else if is_between(h, 1.0, 2.0) {
-		r, g, b = x, c, 0.0
-	} else if is_between(h, 2.0, 3.0) {
-		r, g, b = 0.0, c, x
-	} else if is_between(h, 3.0, 4.0) {
-		r, g, b = 0.0, x, c
-	} else if is_between(h, 4.0, 5.0) {
-		r, g, b = x, 0.0, c
-	} else {
-		r, g, b = c, 0.0, x
-	}
-
-	return Color{f32(r + m), f32(g + m), f32(b + m), 1.0}
+	using rgb := hsv_to_rgb(Hsv{hue, saturation, value})
+	return Color{f32(r), f32(g), f32(b), 1.0}
 }
-
 
 Color_Transparent :: Color{0.0, 0.0, 0.0, 0.0}
 Color_Alice_Blue :: Color{0.941176, 0.972549, 1.0, 1.0}

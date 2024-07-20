@@ -19,11 +19,6 @@ struct VertexOutput{
     @location(1) uv: vec2<f32>,
 }
 
-fn world_pos_to_ndc(world_pos: vec2<f32>) -> vec4<f32>{
-	let ndc = (globals.camera_pos - world_pos) / globals.camera_size;
-	return vec4<f32>(ndc.x, -ndc.y, 0.0,1.0);
-}
-
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: SpriteInstance) -> VertexOutput {
     let pos_and_uv = pos_and_uv(vertex_index, instance);
@@ -49,11 +44,14 @@ fn pos_and_uv(vertex_index: u32, instance: SpriteInstance) -> PosAndUv{
     var out: PosAndUv;
     let size = instance.size;
     let size_half = size / 2.0;
-    let u_uv = unit_uv_from_idx(vertex_index);
-    out.uv = (u_uv * instance.uv.xy) + ((vec2(1.0) -u_uv )* instance.uv.zw);
+    var u_uv = unit_uv_from_idx(vertex_index);
+    out.uv =vec2<f32>(
+       (1.0 - u_uv.x) * instance.uv.x +  u_uv.x * instance.uv.z,
+        u_uv.y * instance.uv.y + (1.0 - u_uv.y) * instance.uv.w
+    );
     
     let rot = instance.rotation;
-    let pos = ((vec2(u_uv.x, u_uv.y)) * size) - size_half;
+    let pos = (u_uv * size) - size_half;
     let pos_rotated = vec2(
         cos(rot)* pos.x - sin(rot)* pos.y,
         sin(rot)* pos.x + cos(rot)* pos.y,     

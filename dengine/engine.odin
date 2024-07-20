@@ -10,6 +10,8 @@ import wgpu_glfw "vendor:wgpu/glfwglue"
 
 
 HOT_RELOAD_SHADERS :: true
+DEBUG_UI_GIZMOS :: true
+
 SURFACE_FORMAT := wgpu.TextureFormat.BGRA8UnormSrgb
 HDR_FORMAT := wgpu.TextureFormat.RGBA16Float
 HDR_SCREEN_TEXTURE_SETTINGS := TextureSettings {
@@ -71,6 +73,7 @@ Engine :: struct {
 	tonemapping_pipeline: RenderPipeline,
 	bloom_renderer:       BloomRenderer,
 	sprite_renderer:      SpriteRenderer,
+	gizmos_renderer:      GizmosRenderer,
 	ui_renderer:          UiRenderer,
 }
 
@@ -109,6 +112,13 @@ engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
 		&shader_registry,
 		globals_uniform.bind_group_layout,
 	)
+	gizmos_renderer_create(
+		&gizmos_renderer,
+		device,
+		queue,
+		&shader_registry,
+		globals_uniform.bind_group_layout,
+	)
 	ui_renderer_create(
 		&engine.ui_renderer,
 		engine.device,
@@ -126,6 +136,7 @@ engine_destroy :: proc(engine: ^Engine) {
 	render_pipeline_destroy(&engine.tonemapping_pipeline)
 	bloom_renderer_destroy(&engine.bloom_renderer)
 	sprite_renderer_destroy(&engine.sprite_renderer)
+	gizmos_renderer_destroy(&engine.gizmos_renderer)
 	ui_renderer_destroy(&engine.ui_renderer)
 	wgpu.QueueRelease(engine.queue)
 	wgpu.DeviceDestroy(engine.device)
@@ -176,10 +187,61 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 		_engine_resize(engine)
 	}
 	_engine_prepare(engine, scene)
+	if DEBUG_UI_GIZMOS {
+		_engine_debug_ui_gizmos(engine)
+	}
 	input_end_of_frame(&engine.input)
 	_engine_render(engine, scene)
 	scene_clear(scene)
 	free_all(context.temp_allocator)
+}
+
+_engine_debug_ui_gizmos :: proc(engine: ^Engine) {
+	cache := &engine.ui_renderer.cache
+
+	@(static)
+	last_cache: UiCache
+	if cache.hovered_id != last_cache.hovered_id {
+		print(" hovered: ", last_cache.hovered_id, " => ", cache.hovered_id)
+		last_cache.hovered_id = cache.hovered_id
+	}
+	if cache.active_id != last_cache.active_id {
+		print(" active: ", last_cache.active_id, " => ", cache.active_id)
+		last_cache.active_id = cache.active_id
+	}
+	if cache.focused_id != last_cache.focused_id {
+		print("focused: ", last_cache.focused_id, " => ", cache.focused_id)
+		last_cache.focused_id = cache.focused_id
+	}
+	last_cache = cache^
+
+	for k, v in cache.cached {
+		color := color_from_hsv(240.0, 1.0, f64(v.z) / 3.0)
+		if cache.hovered_id == k {
+			color = Color_Yellow
+		}
+
+		if cache.focused_id == k {
+			color = Color_Violet
+		}
+		if cache.active_id == k {
+			color = Color_Red
+		}
+		gizmos_aabb(&engine.gizmos_renderer, Aabb{v.pos, v.pos + v.size}, color, .UI_LAYOUT_SPACE)
+	}
+
+	// for &e in UI_MEMORY_elements() {
+	// 	color: Color = ---
+	// 	switch &var in &e.variant {
+	// 	case DivWithComputed:
+	// 		color = Color_Red
+	// 	case TextWithComputed:
+	// 		color = Color_Yellow
+	// 	case CustomUiElement:
+	// 		color = Color_Green
+	// 	}
+	// 	
+	// }
 }
 
 // Note: assumes that engine.screen_size already contains the new size from the glfw resize callback
@@ -216,6 +278,7 @@ _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 	}
 	uniform_buffer_write(engine.queue, &engine.globals_uniform, &globals)
 	sprite_renderer_prepare(&engine.sprite_renderer, scene.sprites[:])
+	gizmos_renderer_prepare(&engine.gizmos_renderer, scene.sprites[:])
 	ui_renderer_end_frame_and_prepare_buffers(&engine.ui_renderer, engine.delta_secs)
 }
 
@@ -284,6 +347,7 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 		engine.globals_uniform.bind_group,
 		engine.screen_size,
 	)
+	gizmos_renderer_render(&engine.gizmos_renderer, hdr_pass, engine.globals_uniform.bind_group)
 	wgpu.RenderPassEncoderEnd(hdr_pass)
 
 	// /////////////////////////////////////////////////////////////////////////////
