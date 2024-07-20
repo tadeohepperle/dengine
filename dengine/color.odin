@@ -96,6 +96,9 @@ hsv_to_rgb :: proc(using hsv: Hsv) -> Rgb {
 	}
 }
 
+color_to_rgb :: proc(color: Color) -> Rgb {
+	return Rgb{f64(color.r), f64(color.g), f64(color.b)}
+}
 
 rbg_to_color :: proc(using rgb: Rgb) -> Color {
 	return Color{f32(r), f32(g), f32(b), 1.0}
@@ -122,9 +125,8 @@ rbg_to_hsv :: proc(using rgb: Rgb) -> Hsv {
 	return Hsv{h, s, v}
 }
 
-color_from_hsv :: proc(hue: f64, saturation: f64, value: f64) -> Color {
-	using rgb := hsv_to_rgb(Hsv{hue, saturation, value})
-	return Color{f32(r), f32(g), f32(b), 1.0}
+color_from_hsv :: proc(hsv: Hsv) -> Color {
+	return rbg_to_color(hsv_to_rgb(hsv))
 }
 
 Color_Transparent :: Color{0.0, 0.0, 0.0, 0.0}

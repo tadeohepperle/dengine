@@ -10,7 +10,7 @@ import wgpu_glfw "vendor:wgpu/glfwglue"
 
 
 HOT_RELOAD_SHADERS :: true
-DEBUG_UI_GIZMOS :: true
+DEBUG_UI_GIZMOS :: false
 
 SURFACE_FORMAT := wgpu.TextureFormat.BGRA8UnormSrgb
 HDR_FORMAT := wgpu.TextureFormat.RGBA16Float
@@ -216,11 +216,10 @@ _engine_debug_ui_gizmos :: proc(engine: ^Engine) {
 	last_cache = cache^
 
 	for k, v in cache.cached {
-		color := color_from_hsv(240.0, 1.0, f64(v.z) / 3.0)
+		color := Color_Light_Blue
 		if cache.hovered_id == k {
 			color = Color_Yellow
 		}
-
 		if cache.focused_id == k {
 			color = Color_Violet
 		}

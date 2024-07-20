@@ -24,6 +24,11 @@ derived_id :: proc(id: UI_ID) -> UI_ID {
 	return hash.crc64_xz(bytes[:])
 }
 
+combined_id :: proc(a: UI_ID, b: UI_ID) -> UI_ID {
+	bytes := transmute([16]u8)[2]UI_ID{a, b}
+	return hash.crc64_xz(bytes[:])
+}
+
 BtnInteraction :: struct {
 	just_pressed:   bool,
 	just_released:  bool,

@@ -56,13 +56,11 @@ main :: proc() {
 	line_break: LineBreak
 	text_align: TextAlign
 
-	background_color: Color = Color_Blue
+	background_color: Color = Color_Beige
 	color2: Color = Color_Dark_Gray
-	color3: Color = Color_Beige
+	color3: Color = Color_Chartreuse
 
 	for engine_start_frame(&engine) {
-
-
 		// start_div(
 		// 	Div {
 		// 		padding = {10, 10, 10, 10},
@@ -151,13 +149,14 @@ main :: proc() {
 		// end_div()
 
 
-		start_window("Hello")
+		start_window("Example Window with Controls")
 		// text_edit(&text_to_edit)
 		enum_radio(&text_align, "Text Align")
 		color_picker(&background_color, "Background")
 		color_picker(&color2, "Color 2")
 		color_picker(&color3, "Color 3")
 		enum_radio(&line_break, "Line Break Value")
+		check_box(&engine.settings.bloom_enabled, "Bloom enabled")
 
 		button("Hello!")
 		end_window()
@@ -207,6 +206,8 @@ main :: proc() {
 		}
 		keys := [?]Key{.LEFT, .RIGHT, .UP, .DOWN}
 		directions := [?]Vec2{{-1, 0}, {1, 0}, {0, 1}, {0, -1}}
+		engine.settings.clear_color = background_color
+
 
 		for k, i in keys {
 			if .Pressed in engine.input.keys[k] {

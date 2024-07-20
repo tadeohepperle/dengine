@@ -297,18 +297,14 @@ start_window :: proc(title: string) {
 	window_pos.x = clamp(window_pos.x, 0, max_pos.x)
 	window_pos.y = clamp(window_pos.y, 0, max_pos.y)
 
-	if res.is_pressed {
-
-
-	}
-
 	start_div(
 		Div {
 			offset = window_pos,
 			border_radius = {5, 5, 5, 5},
 			color = THEME.background,
 			flags = {.Absolute},
-			padding = {8, 8, 8, 8},
+			padding = {16, 16, 8, 16},
+			gap = 12,
 		},
 		id = id,
 	)
@@ -321,12 +317,6 @@ start_window :: proc(title: string) {
 			shadow = 0.5,
 		},
 	)
-
-
-	// div(Div{
-	// 	padding = {}
-	// })
-
 }
 
 red_box :: proc(size: Vec2 = {300, 200}) {
@@ -393,8 +383,63 @@ text_edit :: proc(value: ^strings.Builder) {
 	end_div()
 }
 
+
+check_box :: proc(value: ^bool, title: string, id: UI_ID = 0) {
+	id := id if id != 0 else u64(uintptr(value))
+	val := value^
+	res := _check_box_inner(val, title, id)
+	if res.just_pressed {
+		value^ = !val
+	}
+}
+
+_check_box_inner :: #force_inline proc(checked: bool, label: string, id: UI_ID) -> BtnInteraction {
+	res := ui_btn_interaction(id)
+	text_color: Color = ---
+	knob_inner_color: Color = ---
+	if checked || res.is_pressed {
+		text_color = THEME.text
+		knob_inner_color = THEME.surface_deep
+	} else if res.is_hovered {
+		text_color = THEME.highlight
+		knob_inner_color = THEME.text_secondary
+	} else {
+		text_color = THEME.text_secondary
+		knob_inner_color = THEME.text_secondary
+	}
+	start_div(
+		Div {
+			height = THEME.control_standard_height,
+			gap = 8,
+			flags = {.AxisX, .CrossAlignCenter, .HeightPx},
+		},
+		id = id,
+	)
+	div(
+		Div {
+			width = 24.0,
+			height = 24.0,
+			color = knob_inner_color,
+			border_color = text_color,
+			flags = {.WidthPx, .HeightPx, .MainAlignCenter, .CrossAlignCenter},
+			border_radius = THEME.border_radius,
+			border_width = {4, 4, 4, 4},
+		},
+	)
+	text(
+		Text {
+			str = label,
+			color = text_color,
+			font_size = THEME.font_size,
+			shadow = THEME.text_shadow,
+		},
+	)
+	end_div()
+	return res
+}
+
 enum_radio :: proc(value: ^$T, title: string = "") where intrinsics.type_is_enum(T) {
-	start_div(Div{padding = {16, 16, 8, 8}, border_radius = {8, 8, 8, 8}})
+	start_div(Div{})
 	if title != "" {
 		text(
 			Text {
@@ -409,131 +454,73 @@ enum_radio :: proc(value: ^$T, title: string = "") where intrinsics.type_is_enum
 	for variant in T {
 		str := fmt.aprint(variant, allocator = context.temp_allocator)
 		id := ui_id(str) ~ u64(uintptr(value))
-
-		res := ui_btn_interaction(id)
+		label := fmt.aprint(variant, allocator = context.temp_allocator)
+		res := _check_box_inner(value^ == variant, label, id)
 		if res.just_pressed {
 			value^ = variant
 		}
-		selected := value^ == variant
-		text_color: Color = ---
-		knob_inner_color: Color = ---
-		if selected || res.is_pressed {
-			text_color = THEME.text
-			knob_inner_color = THEME.surface_deep
-		} else if res.is_hovered {
-			text_color = THEME.highlight
-			knob_inner_color = THEME.text_secondary
-		} else {
-			text_color = THEME.text_secondary
-			knob_inner_color = THEME.text_secondary
-		}
-		start_div(
-			Div {
-				height = THEME.control_standard_height,
-				gap = 8,
-				flags = {.AxisX, .CrossAlignCenter, .HeightPx},
-			},
-			id = id,
-		)
-		div(
-			Div {
-				width = 24.0,
-				height = 24.0,
-				color = knob_inner_color,
-				border_color = text_color,
-				flags = {.WidthPx, .HeightPx, .MainAlignCenter, .CrossAlignCenter},
-				border_radius = THEME.border_radius,
-				border_width = {4, 4, 4, 4},
-			},
-		)
-		text(
-			Text {
-				str = "Hello Hello Hello Hello Hello",
-				color = text_color,
-				font_size = THEME.font_size,
-				shadow = THEME.text_shadow,
-			},
-		)
-		end_div()
 	}
 	end_div()
 
 }
 
 
-// COLOR_PICKER_DIALOG_ID := ui_id("color_picker_dialog")
-// COLOR_PICKER_SQUARE_ID := ui_id("color_picker_square")
-// COLOR_PICKER_HUE_SLIDER_ID := ui_id("color_picker_slider_hue")
+// TODO: color picker last_hue caching is not working, if sat or val hit 0, the hue is also set to 0 right now.
 color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 	// use some local variables to remember the last valid values, because:
 	// - in HSV if value = 0 then saturation and hue not reconstructable
 	// - if saturation = 0 then hue not reconstructable
 	@(thread_local)
-	last_id: UI_ID
+	g_id: UI_ID
 	@(thread_local)
-	last_hue: f64
-	@(thread_local)
-	last_saturation: f64
+	g_hsv: Hsv
 
 	id: UI_ID = u64(uintptr(value)) if id == 0 else id
 	dialog_id := derived_id(id)
 	square_id := derived_id(dialog_id)
 	hue_slider_id := derived_id(square_id)
 
-	color := value^
-	color_rgb := Rgb{f64(color.r), f64(color.g), f64(color.b)}
-	color_hsv := rbg_to_hsv(color_rgb)
-
 
 	cache := UI_MEMORY.cache
-	res_knob := ui_btn_interaction(id, manually_unfocus = false)
-	res_dialog := ui_btn_interaction(dialog_id, manually_unfocus = false)
-	res_square := ui_btn_interaction(square_id, manually_unfocus = false)
-	res_hue_slider := ui_btn_interaction(hue_slider_id, manually_unfocus = false)
-
-	cached_square, ok := cache.cached[square_id]
-	if ok {
-		if res_square.is_pressed {
-			unit_pos_in_square: Vec2 = (cache.cursor_pos - cached_square.pos) / cached_square.size
-			unit_pos_in_square.x = clamp(unit_pos_in_square.x, 0, 1)
-			unit_pos_in_square.y = clamp(unit_pos_in_square.y, 0, 1)
-			color_hsv.s = f64(unit_pos_in_square.x)
-			color_hsv.v = f64(1.0 - unit_pos_in_square.y)
-
-		}
-	}
-
-	cached_hue_slider, h_ok := cache.cached[hue_slider_id]
-	if h_ok {
-		if res_hue_slider.is_pressed {
-			fract_in_slider: f32 =
-				(cache.cursor_pos.x - cached_square.pos.x) / cached_square.size.x
-			fract_in_slider = clamp(fract_in_slider, 0, 1)
-			color_hsv.h = f64(fract_in_slider) * 359.8 // so that we dont loop around
-		}
-	}
 	color_picker_ids := [?]UI_ID{id, dialog_id, square_id, hue_slider_id}
 	show_dialog := cache_any_active_or_focused(cache, color_picker_ids[:])
+	res_knob := ui_btn_interaction(id, manually_unfocus = false)
 
 
-	if show_dialog && id == last_id {
-		if color_hsv.v == 0 {
-			assert(color_hsv.s == 0)
-			color_hsv.h = last_hue
-			color_hsv.s = last_saturation
-		} else if color_hsv.s == 0 {
-			color_hsv.h = last_hue
-			last_saturation = color_hsv.s
-		} else {
-			last_hue = color_hsv.h
-			last_saturation = color_hsv.s
+	if show_dialog {
+		res_dialog := ui_btn_interaction(dialog_id, manually_unfocus = false)
+		res_square := ui_btn_interaction(square_id, manually_unfocus = false)
+		res_hue_slider := ui_btn_interaction(hue_slider_id, manually_unfocus = false)
+		if id != g_id {
+			g_id = id
+			color_rgb := color_to_rgb(value^)
+			g_hsv = rbg_to_hsv(color_rgb)
 		}
-	} else {
-		last_id = id
-		last_hue = color_hsv.h
-		last_saturation = color_hsv.s
-	}
 
+		cached_square, ok := cache.cached[square_id]
+		if ok {
+			if res_square.is_pressed {
+				unit_pos_in_square: Vec2 =
+					(cache.cursor_pos - cached_square.pos) / cached_square.size
+				unit_pos_in_square.x = clamp(unit_pos_in_square.x, 0, 1)
+				unit_pos_in_square.y = clamp(unit_pos_in_square.y, 0, 1)
+				g_hsv.s = f64(unit_pos_in_square.x)
+				g_hsv.v = f64(1.0 - unit_pos_in_square.y)
+			}
+		}
+
+		cached_hue_slider, h_ok := cache.cached[hue_slider_id]
+		if h_ok {
+			if res_hue_slider.is_pressed {
+				fract_in_slider: f32 =
+					(cache.cursor_pos.x - cached_square.pos.x) / cached_square.size.x
+				fract_in_slider = clamp(fract_in_slider, 0, 1)
+				g_hsv.h = f64(fract_in_slider) * 359.8 // so that we dont loop around
+			}
+		}
+		value^ = color_from_hsv(g_hsv) // write the transformed color pack to ptr
+	}
+	color := value^
 
 	start_div(
 		Div {
@@ -543,15 +530,12 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 		},
 		id = id,
 	)
-
 	border_color: Color = ---
 	if res_knob.is_hovered {
 		border_color = THEME.text
 	} else {
 		border_color = THEME.surface_border
 	}
-
-
 	div(
 		Div {
 			color = color,
@@ -564,7 +548,6 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 		},
 		id = id,
 	)
-
 
 	if title != "" {
 		text(
@@ -597,12 +580,12 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 		colors_n_x := 10
 		colors_n_y := 10
 		colors := make([]Color, colors_n_x * colors_n_y, allocator = context.temp_allocator)
-		cross_hair_pos := Vec2{f32(color_hsv.s), 1.0 - f32(color_hsv.v)}
+		cross_hair_pos := Vec2{f32(g_hsv.s), 1.0 - f32(g_hsv.v)}
 		for y in 0 ..< colors_n_y {
 			for x in 0 ..< colors_n_x {
 				va_fact := 1.0 - f64(y) / f64(colors_n_y - 1)
 				sat_fact := f64(x) / f64(colors_n_x - 1)
-				col := color_from_hsv(last_hue, sat_fact, va_fact)
+				col := color_from_hsv(Hsv{g_hsv.h, sat_fact, va_fact})
 				colors[y * colors_n_x + x] = col
 			}
 		}
@@ -617,17 +600,17 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 			},
 		)
 		crosshair_at_unit_pos(cross_hair_pos)
-		end_div() // square area.
+		end_div() // end sat-val square area.
 
 		hue_colors_n := 20
 		hue_colors := make([]Color, hue_colors_n * 2, allocator = context.temp_allocator)
 		for x in 0 ..< hue_colors_n {
 			hue_fact := f64(x) / f64(hue_colors_n - 1) * 360.0
-			col := color_from_hsv(hue_fact, 1, 1)
+			col := color_from_hsv(Hsv{hue_fact, 1, 1})
 			hue_colors[x] = col
 			hue_colors[x + hue_colors_n] = col
 		}
-		hue_slider_cross_hair_pos := Vec2{f32(color_hsv.h) / 360.0, 0.5}
+		hue_slider_cross_hair_pos := Vec2{f32(g_hsv.h) / 360.0, 0.5}
 		start_div(Div{}, id = hue_slider_id)
 		color_gradient_rect(
 			ColorGradientRect {
@@ -639,18 +622,8 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 			},
 		)
 		crosshair_at_unit_pos(hue_slider_cross_hair_pos)
-		end_div() // hue slider area
-
-
-		// slider(&color_hsv.h, 0.0, 360.0, id = COLOR_PICKER_SLIDER_1_ID)
-		// if color_hsv.v == 0 || color_hsv.s == 0 {
-		// 	last_hue = color_hsv.h
-		// }
-		// // slider(&color_hsv.s, 0.0, 1.0, id = COLOR_PICKER_SLIDER_2_ID)
-		// // slider(&color_hsv.v, 0.0, 1.0, id = COLOR_PICKER_SLIDER_3_ID)
-
-		value^ = rbg_to_color(hsv_to_rgb(color_hsv))
-		end_div() // dialog
+		end_div() // end hue slider area
+		end_div() // end dialog
 	}
 
 	end_div()
@@ -685,7 +658,8 @@ color_gradient_rect :: proc(rect: ColorGradientRect, id: UI_ID = 0) {
 
 	// Big problem right now: the verts are always thinking they are sitting on the edge and thus getting
 	// sdfs of 0.0 whihc amount to 0.5 when smoothed. Makes color grey instead of white.
-	// negative border_width can help but not completely.
+	//
+	// Solution: set negative border_width
 
 	assert(rect.colors_n_x >= 2)
 	assert(rect.colors_n_y >= 2)
