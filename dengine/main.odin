@@ -157,7 +157,7 @@ main :: proc() {
 		color_picker(&color3, "Color 3")
 		enum_radio(&line_break, "Line Break Value")
 		check_box(&engine.settings.bloom_enabled, "Bloom enabled")
-
+		text_edit_2(&text_to_edit)
 		button("Hello!")
 		end_window()
 		append(

@@ -815,6 +815,7 @@ layout_element_in_text_ctx :: proc(
 
 layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 	font := text.font
+	assert(font != nil)
 	font_size := text.font_size
 	scale := font_size / f32(font.rasterization_size)
 	ctx.current_line.metrics = merge_line_metrics_to_max(
@@ -945,6 +946,7 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_si
 		line.baseline_y = base_y
 		max_line_width = max(max_line_width, line.advance) // TODO! technically line.advance is not the correct end of the line, instead the last glyphs width should be the cutoff value. The advance could be wider of less wide than the width.
 		// todo! there is a bug here, if the width of the container is too small to hold a single word, the application crashes.
+		// todo! crashes when line.glyphs_end_idx is 0 for whatever reason
 		for &g in UI_MEMORY.glyphs[line.glyphs_start_idx:line.glyphs_end_idx] {
 			g.pos.y += base_y
 		}
@@ -1421,6 +1423,67 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	// panic("Done")
 }
 
+
+add_rect :: #force_inline proc(
+	primitives: ^Primitives,
+	pre_batches: ^[dynamic]PreBatch,
+	pos: Vec2,
+	size: Vec2,
+	color: Color,
+	border_color: Color,
+	border_width: BorderWidth,
+	border_radius: BorderRadius,
+	texture: TextureTile,
+) {
+
+	vertices := &primitives.vertices
+	indices := &primitives.indices
+	start_v := u32(len(vertices))
+
+	flags_all: u32 = 0
+	if texture.texture != nil {
+		flags_all |= UI_VERTEX_FLAG_TEXTURED
+	}
+
+
+	vertex := UiVertex {
+		pos           = pos,
+		size          = size,
+		uv            = texture.uv.min,
+		color         = color,
+		border_color  = border_color,
+		border_radius = border_radius,
+		border_width  = border_width,
+		flags         = flags_all,
+	}
+	append(vertices, vertex)
+	vertex.pos = {pos.x, pos.y + size.y}
+	vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX
+	vertex.uv = {texture.uv.min.x, texture.uv.max.y}
+	append(vertices, vertex)
+	vertex.pos = pos + size
+	vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX | UI_VERTEX_FLAG_RIGHT_VERTEX
+	vertex.uv = {texture.uv.max.x, texture.uv.max.y}
+	append(vertices, vertex)
+	vertex.pos = {pos.x + size.x, pos.y}
+	vertex.flags = flags_all | UI_VERTEX_FLAG_RIGHT_VERTEX
+	vertex.uv = {texture.uv.max.x, texture.uv.min.y}
+	append(vertices, vertex)
+
+	append(indices, start_v)
+	append(indices, start_v + 1)
+	append(indices, start_v + 2)
+	append(indices, start_v)
+	append(indices, start_v + 2)
+	append(indices, start_v + 3)
+
+	append(
+		pre_batches,
+		PreBatch{end_idx = len(primitives.indices), kind = .Rect, texture = texture.texture},
+	)
+}
+
+
 add_primitives :: #force_inline proc(
 	element: ^UiElement,
 	primitives: ^Primitives,
@@ -1441,51 +1504,30 @@ add_primitives :: #force_inline proc(
 			flags_all |= UI_VERTEX_FLAG_TEXTURED
 		}
 
-		min_border_radius := min(element.size.x, element.size.y) / 2.0
-		if e.border_radius.top_left > min_border_radius {
-			e.border_radius.top_left = min_border_radius
+		max_border_radius := min(element.size.x, element.size.y) / 2.0
+		if e.border_radius.top_left > max_border_radius {
+			e.border_radius.top_left = max_border_radius
 		}
-		if e.border_radius.top_right > min_border_radius {
-			e.border_radius.top_right = min_border_radius
+		if e.border_radius.top_right > max_border_radius {
+			e.border_radius.top_right = max_border_radius
 		}
-		if e.border_radius.bottom_right > min_border_radius {
-			e.border_radius.bottom_right = min_border_radius
+		if e.border_radius.bottom_right > max_border_radius {
+			e.border_radius.bottom_right = max_border_radius
 		}
-		if e.border_radius.bottom_left > min_border_radius {
-			e.border_radius.bottom_left = min_border_radius
+		if e.border_radius.bottom_left > max_border_radius {
+			e.border_radius.bottom_left = max_border_radius
 		}
 
-		vertex := UiVertex {
-			pos           = element.pos,
-			size          = element.size,
-			uv            = e.texture.uv.min,
-			color         = e.color,
-			border_color  = e.border_color,
-			border_radius = e.border_radius,
-			border_width  = e.border_width,
-			flags         = flags_all,
-		}
-		append(vertices, vertex)
-		vertex.pos = {element.pos.x, element.pos.y + element.size.y}
-		vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX
-		append(vertices, vertex)
-		vertex.pos = element.pos + element.size
-		vertex.flags = flags_all | UI_VERTEX_FLAG_BOTTOM_VERTEX | UI_VERTEX_FLAG_RIGHT_VERTEX
-		append(vertices, vertex)
-		vertex.pos = {element.pos.x + element.size.x, element.pos.y}
-		vertex.flags = flags_all | UI_VERTEX_FLAG_RIGHT_VERTEX
-		append(vertices, vertex)
-
-		append(indices, start_v)
-		append(indices, start_v + 1)
-		append(indices, start_v + 2)
-		append(indices, start_v)
-		append(indices, start_v + 2)
-		append(indices, start_v + 3)
-
-		append(
+		add_rect(
+			primitives,
 			pre_batches,
-			PreBatch{end_idx = len(primitives.indices), kind = .Rect, texture = e.texture.texture},
+			element.pos,
+			element.size,
+			e.color,
+			e.border_color,
+			e.border_width,
+			e.border_radius,
+			e.texture,
 		)
 
 	case TextWithComputed:

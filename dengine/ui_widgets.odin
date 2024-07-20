@@ -723,3 +723,125 @@ color_gradient_rect :: proc(rect: ColorGradientRect, id: UI_ID = 0) {
 	custom_ui_element(rect, set_size, add_elements)
 
 }
+
+
+text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
+	id := id if id != 0 else u64(uintptr(value))
+	res := ui_btn_interaction(id)
+
+	input := UI_MEMORY.cache.input
+	if res.is_focused {
+		for c in input.chars[:input.chars_len] {
+			strings.write_rune(value, c)
+		}
+		if .JustPressed in input.keys[.BACKSPACE] || .JustRepeated in input.keys[.BACKSPACE] {
+			if strings.builder_len(value^) > 0 {
+				strings.pop_rune(value)
+			}
+			print(strings.to_string(value^))
+		}
+	}
+
+	TextEdit :: struct {
+		str:              string,
+		is_hovered:       bool,
+		is_focused:       bool,
+		size:             Vec2,
+		glyphs_start_idx: int,
+		glyphs_end_idx:   int,
+	}
+	data := TextEdit {
+		str        = strings.to_string(value^),
+		is_focused = res.is_focused,
+		is_hovered = res.is_hovered,
+		size       = Vec2{200, 32},
+	}
+
+	set_size :: proc(data: ^TextEdit, max_size: Vec2) -> (used_size: Vec2) {
+		if data.str != "" {
+			text := TextWithComputed {
+				text = Text {
+					str = data.str,
+					font_size = THEME.font_size,
+					line_break = .Never,
+					font = &UI_MEMORY.default_font,
+				},
+			}
+			ctx := tmp_text_layout_ctx(data.size, 0.0, .LeftButRightIfOverflow)
+			layout_text_in_text_ctx(ctx, &text)
+			finalize_text_layout_ctx_and_return_size(ctx)
+			data.glyphs_start_idx = text.glyphs_start_idx
+			data.glyphs_end_idx = text.glyphs_end_idx
+		}
+		return data.size
+	}
+
+	add_elements :: proc(
+		data: ^TextEdit,
+		pos: Vec2,
+		size: Vec2,
+		primitives: ^Primitives,
+		pre_batches: ^[dynamic]PreBatch,
+	) {
+
+
+		border_color: Color = THEME.surface_border if data.is_focused else THEME.surface
+		bg_color: Color = highlight(THEME.surface_deep) if data.is_focused else THEME.surface_deep
+		add_rect(
+			primitives,
+			pre_batches,
+			pos,
+			size,
+			bg_color,
+			border_color,
+			THEME.border_width,
+			THEME.border_radius,
+			{},
+		)
+
+		if data.str != "" {
+
+
+			for &g, i in UI_MEMORY.glyphs[data.glyphs_start_idx:data.glyphs_end_idx] {
+				if i % 2 == 0 {
+					add_rect(
+						primitives,
+						pre_batches,
+						g.pos + pos,
+						g.size,
+						Color_Gray,
+						border_color,
+						THEME.border_width,
+						THEME.border_radius,
+						{},
+					)
+				}
+
+			}
+
+			for &g in UI_MEMORY.glyphs[data.glyphs_start_idx:data.glyphs_end_idx] {
+				g.pos += pos
+				append(
+					&primitives.glyphs_instances,
+					UiGlyphInstance {
+						pos = g.pos,
+						size = g.size,
+						uv = g.uv,
+						color = THEME.text,
+						shadow = 0.3,
+					},
+				)
+			}
+			append(
+				pre_batches,
+				PreBatch {
+					end_idx = len(primitives.glyphs_instances),
+					kind = .Glyph,
+					texture = UI_MEMORY.default_font.texture,
+				},
+			)
+		}
+	}
+
+	custom_ui_element(data, set_size, add_elements, id = id)
+}
