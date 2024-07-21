@@ -6,6 +6,7 @@ import "core:math"
 import "core:math/rand"
 import "core:mem"
 import "core:strings"
+import "core:text/edit"
 
 
 UiTheme :: struct {
@@ -726,58 +727,116 @@ color_gradient_rect :: proc(rect: ColorGradientRect, id: UI_ID = 0) {
 
 
 text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
+
+	TextEditCached :: struct {
+		pipe_pos:        int,
+		selection_start: int,
+		selection_end:   int,
+		line_idx:        int,
+	}
+
+	@(thread_local)
+	g_id: UI_ID = 0
+	@(thread_local)
+	g_cached: TextEditCached = {}
+
+
 	id := id if id != 0 else u64(uintptr(value))
+	text_id := derived_id(id)
 	res := ui_btn_interaction(id)
+
+
+	cache := UI_MEMORY.cache
+
 
 	input := UI_MEMORY.cache.input
 	if res.is_focused {
+		if id != g_id {
+			g_id = id
+			g_cached = TextEditCached {
+				pipe_pos = strings.builder_len(value^) - 3, // todo!
+			}
+		}
 		for c in input.chars[:input.chars_len] {
 			strings.write_rune(value, c)
 		}
-		if .JustPressed in input.keys[.BACKSPACE] || .JustRepeated in input.keys[.BACKSPACE] {
-			if strings.builder_len(value^) > 0 {
-				strings.pop_rune(value)
+
+		if (PressFlags{.JustPressed, .JustRepeated} & input.keys[.BACKSPACE] != {}) {
+			rune_count := strings.rune_count(strings.to_string(value^))
+			if rune_count > 0 {
+				if g_cached.pipe_pos >= rune_count {
+					strings.pop_rune(value)
+				} else {
+					// strings.builder
+				}
+
 			}
-			print(strings.to_string(value^))
+		}
+		if (PressFlags{.JustPressed, .JustRepeated} & input.keys[.LEFT] != {}) &&
+		   g_cached.pipe_pos > 0 {
+			g_cached.pipe_pos -= 1
+		}
+		if (PressFlags{.JustPressed, .JustRepeated} & input.keys[.RIGHT] != {}) &&
+		   g_cached.pipe_pos < strings.builder_len(value^) {
+			g_cached.pipe_pos += 1
+		}
+
+		if res.just_pressed {
+			print(cache.cursor_pos)
 		}
 	}
 
-	TextEdit :: struct {
-		str:              string,
-		is_hovered:       bool,
-		is_focused:       bool,
-		size:             Vec2,
-		glyphs_start_idx: int,
-		glyphs_end_idx:   int,
-	}
-	data := TextEdit {
-		str        = strings.to_string(value^),
-		is_focused = res.is_focused,
-		is_hovered = res.is_hovered,
-		size       = Vec2{200, 32},
-	}
+	str := strings.to_string(value^)
 
-	set_size :: proc(data: ^TextEdit, max_size: Vec2) -> (used_size: Vec2) {
-		if data.str != "" {
-			text := TextWithComputed {
-				text = Text {
-					str = data.str,
-					font_size = THEME.font_size,
-					line_break = .Never,
-					font = &UI_MEMORY.default_font,
-				},
-			}
-			ctx := tmp_text_layout_ctx(data.size, 0.0, .LeftButRightIfOverflow)
-			layout_text_in_text_ctx(ctx, &text)
-			finalize_text_layout_ctx_and_return_size(ctx)
-			data.glyphs_start_idx = text.glyphs_start_idx
-			data.glyphs_end_idx = text.glyphs_end_idx
-		}
-		return data.size
-	}
+	border_color: Color = THEME.surface_border if res.is_focused else THEME.surface
+	bg_color: Color = highlight(THEME.surface_deep) if res.is_focused else THEME.surface_deep
 
-	add_elements :: proc(
-		data: ^TextEdit,
+	markers_data: MarkersData = {
+		text_id      = text_id,
+		just_pressed = res.just_pressed,
+		is_pressed   = res.is_pressed,
+	}
+	text(fmt.aprint(g_cached, allocator = context.temp_allocator))
+	start_div(
+		Div {
+			width = 200,
+			height = 32,
+			color = bg_color,
+			border_color = border_color,
+			border_width = THEME.border_width,
+			border_radius = THEME.border_radius,
+			flags = {.AxisX, .WidthPx, .HeightPx},
+		},
+		id = id,
+	)
+	if res.is_focused {
+		custom_ui_element(markers_data, set_markers_size, add_markers_elements)
+	}
+	text(
+		Text {
+			str = str,
+			font_size = THEME.font_size,
+			color = THEME.text,
+			shadow = THEME.text_shadow,
+			line_break = .OnCharacter,
+			pointer_pass_through = true,
+		},
+		id = text_id,
+	)
+	end_div()
+
+	// the job of this markers element is to read the TextEditCached from local 
+
+	MarkersData :: struct {
+		text_id:      UI_ID,
+		is_pressed:   bool,
+		just_pressed: bool,
+	}
+	set_markers_size :: proc(data: ^MarkersData, max_size: Vec2) -> (used_size: Vec2) {
+		return Vec2{0, 0}
+	}
+	add_markers_elements :: proc(
+		data: ^MarkersData,
 		pos: Vec2,
 		size: Vec2,
 		primitives: ^Primitives,
@@ -785,63 +844,87 @@ text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
 	) {
 
 
-		border_color: Color = THEME.surface_border if data.is_focused else THEME.surface
-		bg_color: Color = highlight(THEME.surface_deep) if data.is_focused else THEME.surface_deep
-		add_rect(
-			primitives,
-			pre_batches,
-			pos,
-			size,
-			bg_color,
-			border_color,
-			THEME.border_width,
-			THEME.border_radius,
-			{},
-		)
+		text_ctx, ok := UI_MEMORY.text_ids_to_tmp_layouts[data.text_id]
+		cursor_pos := UI_MEMORY.cache.cursor_pos
+		rel_cursor_pos := cursor_pos - pos
+		assert(ok)
 
-		if data.str != "" {
+		// get the glyph we are currently on:
 
+		line_idx := -1
+		str_rune_idx := -1
+		last_rune_idx := 0
+		for line, i in text_ctx.lines {
+			line_min_y := line.baseline_y - line.metrics.ascent
+			line_max_y := line.baseline_y - line.metrics.descent
+			if line_min_y < rel_cursor_pos.y && line_max_y > rel_cursor_pos.y {
+				line_idx = i
+				last_advance: f32 = 0 // todo! this approach does only work with .Left Align
+				for ru in line.rune_advances {
+					last_rune_idx = ru.str_rune_idx
+					if ru.advance > rel_cursor_pos.x { 	// likely wrong
+						if ru.advance - rel_cursor_pos.x > rel_cursor_pos.x - last_advance {
+							// click more at the beginning of a letter
+							str_rune_idx = ru.str_rune_idx
+						} else {
 
-			for &g, i in UI_MEMORY.glyphs[data.glyphs_start_idx:data.glyphs_end_idx] {
-				if i % 2 == 0 {
-					add_rect(
-						primitives,
-						pre_batches,
-						g.pos + pos,
-						g.size,
-						Color_Gray,
-						border_color,
-						THEME.border_width,
-						THEME.border_radius,
-						{},
-					)
+							// click towards end of a letter
+							str_rune_idx = ru.str_rune_idx + 1
+						}
+						break
+					}
+					last_advance = ru.advance
+				}
+				break
+			}
+		}
+		g_cached.line_idx = line_idx
+
+		if data.just_pressed {
+			if str_rune_idx != -1 {
+				assert(str_rune_idx != -1)
+				g_cached.pipe_pos = str_rune_idx
+			} else {
+				g_cached.pipe_pos = last_rune_idx + 1
+			}
+		}
+
+		// draw the cursor:
+		if g_cached.pipe_pos != -1 {
+			found_line: ^LineRun = nil
+			last_advance: f32 = 0
+			outer: for &line in text_ctx.lines {
+				found_line = &line
+				last_advance = 0
+				for ru in line.rune_advances {
+					if ru.str_rune_idx == g_cached.pipe_pos {
+						break outer
+					}
+					last_advance = ru.advance
+				}
+			}
+			if found_line != nil {
+				pipe_size := Vec2{4.0, found_line.metrics.ascent - found_line.metrics.descent}
+				pipe_pos := Vec2 {
+					pos.x + last_advance,
+					pos.y + found_line.baseline_y - found_line.metrics.ascent,
 				}
 
-			}
-
-			for &g in UI_MEMORY.glyphs[data.glyphs_start_idx:data.glyphs_end_idx] {
-				g.pos += pos
-				append(
-					&primitives.glyphs_instances,
-					UiGlyphInstance {
-						pos = g.pos,
-						size = g.size,
-						uv = g.uv,
-						color = THEME.text,
-						shadow = 0.3,
-					},
+				add_rect(
+					primitives,
+					pre_batches,
+					pipe_pos,
+					pipe_size,
+					Color{1, 1, 1, 0.9},
+					{},
+					{},
+					{2, 2, 2, 2},
+					{},
 				)
 			}
-			append(
-				pre_batches,
-				PreBatch {
-					end_idx = len(primitives.glyphs_instances),
-					kind = .Glyph,
-					texture = UI_MEMORY.default_font.texture,
-				},
-			)
-		}
-	}
 
-	custom_ui_element(data, set_size, add_elements, id = id)
+		}
+
+
+	}
 }

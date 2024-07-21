@@ -119,9 +119,19 @@ CachedElement :: struct {
 	i:                    int,
 	generation:           int,
 	pointer_pass_through: bool,
-	color:                Color, // todo! replace with #raw_union (DivCached, TextCached, ...)
-	border_color:         Color,
+	data:                 CachedData,
 }
+
+CachedData :: struct #raw_union {
+	div:  DivCached,
+	ints: [8]int,
+}
+
+DivCached :: struct {
+	color:        Color,
+	border_color: Color,
+}
+
 
 ComputedGlyph :: struct {
 	pos:  Vec2,
@@ -199,16 +209,17 @@ MAX_Z_REGIONS :: 1000
 UiMemory :: struct {
 	// todo!: possibly these could be GlyphInstances directly, such that we do not need to copy out of here again when creating the instance for UIBatches. 
 	// For that, make this a dynamic array that is swapped to the ui_batches
-	glyphs:             [MAX_GLYPHS]ComputedGlyph,
-	glyphs_len:         int,
-	elements:           [MAX_UI_ELEMENTS]UiElement,
-	elements_len:       int,
-	parent_stack:       [MAX_PARENT_LEVELS]Parent, // the last item in this stack is the index of the current parent
-	parent_stack_len:   int,
-	default_font:       Font,
-	default_font_color: Color,
-	default_font_size:  f32,
-	cache:              ^UiCache,
+	glyphs:                  [MAX_GLYPHS]ComputedGlyph,
+	glyphs_len:              int,
+	elements:                [MAX_UI_ELEMENTS]UiElement,
+	elements_len:            int,
+	parent_stack:            [MAX_PARENT_LEVELS]Parent, // the last item in this stack is the index of the current parent
+	parent_stack_len:        int,
+	default_font:            Font,
+	default_font_color:      Color,
+	default_font_size:       f32,
+	cache:                   ^UiCache,
+	text_ids_to_tmp_layouts: map[UI_ID]^TextLayoutCtx, // (a little hacky), save the text layouts during the set_size step here, such that other custom elements can lookup a certain text_id in the set_position step and draw geometry based on the layouted lines.
 }
 
 UI_MEMORY_elements :: proc() -> []UiElement {
@@ -305,14 +316,15 @@ BorderWidth :: struct {
 }
 
 Text :: struct {
-	str:        string,
-	font:       ^Font,
-	color:      Color,
-	font_size:  f32,
-	shadow:     f32,
-	offset:     Vec2,
-	line_break: LineBreak,
-	align:      TextAlign,
+	str:                  string,
+	font:                 ^Font,
+	color:                Color,
+	font_size:            f32,
+	shadow:               f32,
+	offset:               Vec2,
+	line_break:           LineBreak,
+	align:                TextAlign,
+	pointer_pass_through: bool,
 }
 
 TextAlign :: enum {
@@ -439,15 +451,23 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 					s = lerp_speed * delta_secs
 				}
 
-				if lerp_style {
-					new_cached.color = lerp(old_cached.color, var.color, s)
-					var.color = new_cached.color
+				cached_data: DivCached
 
-					new_cached.border_color = lerp(old_cached.border_color, var.border_color, s)
-					var.border_color = new_cached.border_color
+				if lerp_style {
+					new_cached.data.div.color = lerp(new_cached.data.div.color, var.color, s)
+					var.color = new_cached.data.div.color
+
+					new_cached.data.div.border_color = lerp(
+						new_cached.data.div.border_color,
+						var.border_color,
+						s,
+					)
+					var.border_color = new_cached.data.div.border_color
 				} else {
-					new_cached.color = var.color
-					new_cached.border_color = var.border_color
+					new_cached.data.div = DivCached {
+						color        = var.color,
+						border_color = var.border_color,
+					}
 				}
 				if lerp_transform {
 					new_cached.pos = lerp(old_cached.pos, el.pos, s)
@@ -457,7 +477,10 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 				}
 			}
 		case TextWithComputed:
-		// no lerping here yet
+			if var.pointer_pass_through {
+				new_cached.pointer_pass_through = true
+			}
+		// todo! lerping text color!
 		case CustomUiElement:
 		// no lerping here yet
 		}
@@ -632,6 +655,9 @@ set_size :: proc(i: int, element: ^UiElement, max_size: Vec2, parent_z: ZIndex) 
 	case TextWithComputed:
 		element.size = set_size_for_text(&var, max_size)
 		skipped = 1
+		if element.id != 0 {
+			UI_MEMORY.text_ids_to_tmp_layouts[element.id] = var.tmp_text_layout_ctx
+		}
 	case CustomUiElement:
 		element.size = var.set_size(raw_data(&var.data), max_size)
 		skipped = 1
@@ -788,6 +814,7 @@ break_line :: proc(ctx: ^TextLayoutCtx) {
 	// note: we keep the metrics of the line before
 	ctx.current_line.advance = 0
 	ctx.current_line.glyphs_start_idx = UI_MEMORY.glyphs_len
+	ctx.current_line.rune_advances = make([dynamic]LineRunRune, allocator = context.temp_allocator)
 }
 
 layout_element_in_text_ctx :: proc(
@@ -824,7 +851,7 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 	)
 	ctx.current_font = text.font
 	text.glyphs_start_idx = UI_MEMORY.glyphs_len
-	for ch in text.str {
+	for ch, i in text.str {
 		g, ok := ctx.current_font.glyphs[ch]
 		if !ok {
 			fmt.panicf("Character %s not rastierized yet!", ch)
@@ -864,6 +891,7 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 				}
 			}
 		}
+
 		// now add the glyph to the current line:
 		if g.is_white_space {
 			clear(&ctx.last_non_whitespace_advances)
@@ -885,6 +913,10 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 			)
 		}
 		ctx.current_line.advance += g.advance
+		append(
+			&ctx.current_line.rune_advances,
+			LineRunRune{str_rune_idx = i, advance = ctx.current_line.advance},
+		)
 	}
 	text.glyphs_end_idx = UI_MEMORY.glyphs_len
 }
@@ -1012,6 +1044,12 @@ LineRun :: struct {
 	glyphs_start_idx: int,
 	glyphs_end_idx:   int,
 	metrics:          LineMetrics,
+	rune_advances:    [dynamic]LineRunRune,
+}
+
+LineRunRune :: struct {
+	str_rune_idx: int,
+	advance:      f32,
 }
 
 DivAndLineIdx :: struct {
@@ -1048,7 +1086,10 @@ tmp_text_layout_ctx :: proc(
 		glyphs_start_idx = UI_MEMORY.glyphs_len,
 		glyphs_end_idx = UI_MEMORY.glyphs_len,
 		lines = make([dynamic]LineRun, allocator = context.temp_allocator),
-		current_line = {glyphs_start_idx = UI_MEMORY.glyphs_len},
+		current_line = {
+			glyphs_start_idx = UI_MEMORY.glyphs_len,
+			rune_advances = make([dynamic]LineRunRune, allocator = context.temp_allocator),
+		},
 		last_non_whitespace_advances = make(
 			[dynamic]XOffsetAndAdvance,
 			4,
