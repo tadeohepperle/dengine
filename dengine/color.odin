@@ -11,6 +11,21 @@ color_from_u8 :: proc(r: u8, g: u8, b: u8) -> Color {
 	return {color_map_to_srgb(r), color_map_to_srgb(g), color_map_to_srgb(b), 1.0}
 }
 
+// allocates in tmp allocator. THe mapping is likely wrong here, TODO! verify math
+color_to_hex :: proc(color: Color) -> string {
+	srgb_map :: proc(v: f32) -> u8 {
+		if v <= 0.0031308 {
+			return u8(v * 12.92 * 255)
+		}
+		return u8((1.055 * math.pow_f32(v, 1.0 / 2.4) - 0.055) * 255)
+	}
+
+	r := srgb_map(color[0])
+	g := srgb_map(color[1])
+	b := srgb_map(color[2])
+	return fmt.aprintf("#%02x%02x%02x", r, g, b, allocator = context.temp_allocator)
+}
+
 color_from_hex :: proc(hex: string) -> Color {
 	hex_digit_value :: proc(c: rune) -> u8 {
 		switch c {
@@ -23,13 +38,6 @@ color_from_hex :: proc(hex: string) -> Color {
 		}
 
 		return 0
-
-		// return match c {
-		//     '0'...'9' => u8(c - '0'),
-		//     'a'...'f' => u8(c - 'a' + 10),
-		//     'A'...'F' => u8(c - 'A' + 10),
-		//     else => 0,
-		// };
 	}
 
 	parse_hex_pair :: proc(s: string, start: int) -> u8 {
@@ -128,6 +136,7 @@ rbg_to_hsv :: proc(using rgb: Rgb) -> Hsv {
 color_from_hsv :: proc(hsv: Hsv) -> Color {
 	return rbg_to_color(hsv_to_rgb(hsv))
 }
+
 
 Color_Transparent :: Color{0.0, 0.0, 0.0, 0.0}
 Color_Alice_Blue :: Color{0.941176, 0.972549, 1.0, 1.0}

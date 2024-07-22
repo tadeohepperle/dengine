@@ -331,7 +331,6 @@ TextAlign :: enum {
 	Left,
 	Center,
 	Right,
-	LeftButRightIfOverflow,
 }
 
 LineBreak :: enum {
@@ -680,7 +679,7 @@ set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
 }
 
 set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) -> (text_size: Vec2) {
-	if text.str == "" {return Vec2{}}
+	// if text.str == "" {return Vec2{}}
 	ctx := tmp_text_layout_ctx(max_size, 0.0, text.align)
 	layout_text_in_text_ctx(ctx, text)
 	text_size = finalize_text_layout_ctx_and_return_size(ctx)
@@ -810,11 +809,11 @@ set_child_sizes_for_div :: proc(
 
 break_line :: proc(ctx: ^TextLayoutCtx) {
 	ctx.current_line.glyphs_end_idx = UI_MEMORY.glyphs_len
+	ctx.current_line.byte_end_idx = ctx.last_byte_idx
 	append(&ctx.lines, ctx.current_line)
 	// note: we keep the metrics of the line before
 	ctx.current_line.advance = 0
 	ctx.current_line.glyphs_start_idx = UI_MEMORY.glyphs_len
-	ctx.current_line.rune_advances = make([dynamic]LineRunRune, allocator = context.temp_allocator)
 }
 
 layout_element_in_text_ctx :: proc(
@@ -851,7 +850,9 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 	)
 	ctx.current_font = text.font
 	text.glyphs_start_idx = UI_MEMORY.glyphs_len
-	for ch, i in text.str {
+	resize(&ctx.byte_advances, len(ctx.byte_advances) + len(text.str))
+	for ch, ch_byte_idx in text.str {
+		ctx.last_byte_idx = ch_byte_idx
 		g, ok := ctx.current_font.glyphs[ch]
 		if !ok {
 			fmt.panicf("Character %s not rastierized yet!", ch)
@@ -862,6 +863,7 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 		g.width *= scale
 		g.height *= scale
 		if ch == '\n' {
+			ctx.byte_advances[ch_byte_idx] = ctx.current_line.advance
 			break_line(ctx)
 			continue
 		}
@@ -873,6 +875,7 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 				// just break, note: the whitespace here is omitted and does not add extra space.
 				// (we do not want to have extra white space at the end of a line or at the start of a line unintentionally.)
 				clear(&ctx.last_non_whitespace_advances)
+				ctx.last_whitespace_byte_idx = ch_byte_idx
 				continue
 			}
 
@@ -881,6 +884,7 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 				move_n_to_next_line := len(ctx.last_non_whitespace_advances)
 				last_line: ^LineRun = &ctx.lines[len(ctx.lines) - 1]
 				last_line.glyphs_end_idx -= move_n_to_next_line
+				last_line.byte_end_idx = ctx.last_whitespace_byte_idx + 1 // assuming all whitespace is one byte ?
 				ctx.current_line.glyphs_start_idx -= move_n_to_next_line
 				for j in 0 ..< move_n_to_next_line {
 					oa := ctx.last_non_whitespace_advances[j]
@@ -913,10 +917,7 @@ layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
 			)
 		}
 		ctx.current_line.advance += g.advance
-		append(
-			&ctx.current_line.rune_advances,
-			LineRunRune{str_rune_idx = i, advance = ctx.current_line.advance},
-		)
+		ctx.byte_advances[ch_byte_idx] = ctx.current_line.advance
 	}
 	text.glyphs_end_idx = UI_MEMORY.glyphs_len
 }
@@ -967,7 +968,8 @@ merge_line_metrics_to_max :: proc(a: LineMetrics, b: LineMetrics) -> (res: LineM
 
 finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_size: Vec2) {
 	max_size = ctx.max_size
-
+	ctx.current_line.byte_end_idx = ctx.last_byte_idx
+	ctx.current_line.glyphs_end_idx = UI_MEMORY.glyphs_len
 	append(&ctx.lines, ctx.current_line)
 	// calculate the y of the character baseline for each line and add it to the y position of each glyphs coordinates
 	base_y: f32 = 0
@@ -987,6 +989,7 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_si
 			base_y += ctx.additional_line_gap // can be configured by setting div.gap property.
 		}
 	}
+
 	// if true {os.exit(1)}
 
 	// go over all non-text child elements and set their position to the baseline - descent (so the total bottom of a line).
@@ -1010,10 +1013,6 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_si
 				offset = (max_size.x - line_width) / 2
 			case .Right:
 				offset = max_size.x - line_width
-			case .LeftButRightIfOverflow:
-				if line_width > max_size.y {
-					offset = max_size.x - line_width
-				}
 			}
 			if offset == 0 {
 				continue
@@ -1023,10 +1022,6 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_si
 			}
 		}
 	}
-
-
-	// todo: add a mode for centered / end aligned text layout:
-	//    How? Iterate over lines a second time, shift all glyphs and all elements of that line by some amount to the right, depending on the max_width of all lines.
 
 	return
 }
@@ -1044,12 +1039,7 @@ LineRun :: struct {
 	glyphs_start_idx: int,
 	glyphs_end_idx:   int,
 	metrics:          LineMetrics,
-	rune_advances:    [dynamic]LineRunRune,
-}
-
-LineRunRune :: struct {
-	str_rune_idx: int,
-	advance:      f32,
+	byte_end_idx:     int,
 }
 
 DivAndLineIdx :: struct {
@@ -1070,8 +1060,10 @@ TextLayoutCtx :: struct {
 	last_non_whitespace_advances: [dynamic]XOffsetAndAdvance,
 	divs_and_their_line_idxs:     [dynamic]DivAndLineIdx,
 	align:                        TextAlign,
+	byte_advances:                [dynamic]f32,
+	last_whitespace_byte_idx:     int,
+	last_byte_idx:                int,
 }
-
 
 tmp_text_layout_ctx :: proc(
 	max_size: Vec2,
@@ -1086,10 +1078,7 @@ tmp_text_layout_ctx :: proc(
 		glyphs_start_idx = UI_MEMORY.glyphs_len,
 		glyphs_end_idx = UI_MEMORY.glyphs_len,
 		lines = make([dynamic]LineRun, allocator = context.temp_allocator),
-		current_line = {
-			glyphs_start_idx = UI_MEMORY.glyphs_len,
-			rune_advances = make([dynamic]LineRunRune, allocator = context.temp_allocator),
-		},
+		current_line = {glyphs_start_idx = UI_MEMORY.glyphs_len},
 		last_non_whitespace_advances = make(
 			[dynamic]XOffsetAndAdvance,
 			4,
@@ -1100,6 +1089,7 @@ tmp_text_layout_ctx :: proc(
 			allocator = context.temp_allocator,
 		),
 		align = align,
+		byte_advances = make([dynamic]f32, allocator = context.temp_allocator),
 	}
 	return ctx
 }
@@ -1777,7 +1767,7 @@ ui_renderer_create :: proc(
 	render_pipeline_create_panic(&rend.glyph_pipeline, device, reg)
 	font, err := font_create(default_font_path, device, queue)
 	if err != nil {
-		fmt.panicf("Could not load font from: %s", default_font_path)
+		fmt.panicf("Could not load font from: %s, reason: %s", default_font_path, err)
 	}
 	UI_MEMORY.default_font = font
 	UI_MEMORY.default_font_color = default_font_color

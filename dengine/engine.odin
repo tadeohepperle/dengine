@@ -154,7 +154,7 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 	engine.delta_secs = f32(engine.delta_time_f64)
 	engine.total_time_f64 = time
 	engine.total_secs = f32(engine.total_time_f64)
-
+	engine.input.total_secs = engine.total_secs
 	if glfw.WindowShouldClose(engine.window) || .JustPressed in engine.input.keys[.ESCAPE] {
 		return false
 	}
@@ -383,7 +383,6 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 
 }
 
-
 _init_glfw_window :: proc(engine: ^Engine) {
 	glfw.Init()
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
@@ -395,10 +394,12 @@ _init_glfw_window :: proc(engine: ^Engine) {
 		nil,
 		nil,
 	)
+	engine.input.window = engine.window
 	w, h := glfw.GetFramebufferSize(engine.window)
 	engine.screen_size = {u32(w), u32(h)}
 	engine.screen_size_f32 = {f32(w), f32(h)}
 	glfw.SetWindowUserPointer(engine.window, engine)
+
 
 	framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, w, h: i32) {
 		context = runtime.default_context()
@@ -422,7 +423,6 @@ _init_glfw_window :: proc(engine: ^Engine) {
 		input_receive_glfw_char_event(&engine.input, char)
 	}
 	glfw.SetCharCallback(engine.window, char_callback)
-
 
 	cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x_pos, y_pos: f64) {
 		context = runtime.default_context()

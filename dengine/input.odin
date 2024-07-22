@@ -2,6 +2,7 @@ package dengine
 import "vendor:glfw"
 
 import "core:fmt"
+import "core:strings"
 
 
 MAX_CAPTURES_CHARS :: 16
@@ -13,6 +14,30 @@ Input :: struct {
 	mouse_buttons:  [MouseButton]PressFlags,
 	chars:          [MAX_CAPTURES_CHARS]rune,
 	chars_len:      int,
+	total_secs:     f32,
+	window:         glfw.WindowHandle,
+}
+
+input_set_clipboard :: proc(input: ^Input, str: string) {
+	builder := strings.builder_make(allocator = context.temp_allocator)
+	strings.write_string(&builder, str)
+	glfw.SetClipboardString(input.window, strings.to_cstring(&builder))
+}
+
+input_get_clipboard :: proc(input: ^Input) -> string {
+	return glfw.GetClipboardString(input.window)
+}
+
+input_just_pressed_or_repeated :: proc(input: ^Input, key: Key) -> bool {
+	return PressFlags{.JustPressed, .JustRepeated} & input.keys[key] != PressFlags{}
+}
+
+input_just_pressed :: proc(input: ^Input, key: Key) -> bool {
+	return .JustPressed in input.keys[key]
+}
+
+input_pressed :: proc(input: ^Input, key: Key) -> bool {
+	return .Pressed in input.keys[key]
 }
 
 

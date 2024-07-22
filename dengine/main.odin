@@ -37,7 +37,10 @@ main :: proc() {
 
 
 	text_to_edit: StringBuilder
-	strings.write_string(&text_to_edit, "This is text.")
+	strings.write_string(
+		&text_to_edit,
+		"This is text that I like to share with the entire Wärld!",
+	)
 
 	border_width: BorderWidth = {
 		top    = 20,
@@ -149,7 +152,7 @@ main :: proc() {
 		// end_div()
 
 
-		start_window("Example Window with Controls")
+		start_window("Example Window with Controls here.")
 		// text_edit(&text_to_edit)
 		enum_radio(&text_align, "Text Align")
 		color_picker(&background_color, "Background")
@@ -157,7 +160,7 @@ main :: proc() {
 		color_picker(&color3, "Color 3")
 		enum_radio(&line_break, "Line Break Value")
 		check_box(&engine.settings.bloom_enabled, "Bloom enabled")
-		text_edit_2(&text_to_edit)
+		text_edit(&text_to_edit)
 		button("Hello!")
 		end_window()
 		append(

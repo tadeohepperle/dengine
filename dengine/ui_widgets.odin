@@ -6,7 +6,7 @@ import "core:math"
 import "core:math/rand"
 import "core:mem"
 import "core:strings"
-import "core:text/edit"
+import edit "core:text/edit"
 
 
 UiTheme :: struct {
@@ -301,9 +301,10 @@ start_window :: proc(title: string) {
 	start_div(
 		Div {
 			offset = window_pos,
+			width = 300,
 			border_radius = {5, 5, 5, 5},
 			color = THEME.background,
-			flags = {.Absolute},
+			flags = {.Absolute, .WidthPx},
 			padding = {16, 16, 8, 16},
 			gap = 12,
 		},
@@ -324,12 +325,8 @@ red_box :: proc(size: Vec2 = {300, 200}) {
 	div(Div{color = Color_Red, width = size.x, height = size.y, flags = {.WidthPx, .HeightPx}})
 }
 
-DO_SOMETHING := proc(t: string) {
-	fmt.print("Do something", t)
-}
-
 StringBuilder :: strings.Builder
-text_edit :: proc(value: ^strings.Builder) {
+edit_old :: proc(value: ^strings.Builder) {
 
 	id := u64(uintptr(value))
 	res := ui_btn_interaction(id)
@@ -344,7 +341,6 @@ text_edit :: proc(value: ^strings.Builder) {
 			if strings.builder_len(value^) > 0 {
 				strings.pop_rune(value)
 			}
-			print(strings.to_string(value^))
 		}
 	}
 
@@ -480,10 +476,10 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 	dialog_id := derived_id(id)
 	square_id := derived_id(dialog_id)
 	hue_slider_id := derived_id(square_id)
-
+	text_edit_id := derived_id(hue_slider_id)
 
 	cache := UI_MEMORY.cache
-	color_picker_ids := [?]UI_ID{id, dialog_id, square_id, hue_slider_id}
+	color_picker_ids := [?]UI_ID{id, dialog_id, square_id, hue_slider_id, text_edit_id}
 	show_dialog := cache_any_active_or_focused(cache, color_picker_ids[:])
 	res_knob := ui_btn_interaction(id, manually_unfocus = false)
 
@@ -520,6 +516,9 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 			}
 		}
 		value^ = color_from_hsv(g_hsv) // write the transformed color pack to ptr
+
+		color_picker_str := color_to_hex(value^)
+
 	}
 	color := value^
 
@@ -624,6 +623,20 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 		)
 		crosshair_at_unit_pos(hue_slider_cross_hair_pos)
 		end_div() // end hue slider area
+
+
+		@(static)
+		builder_created: bool
+		@(static)
+		color_hex_str: strings.Builder
+		if !builder_created {
+			builder_created = true
+			color_hex_str := strings.builder_make(allocator = context.temp_allocator)
+			strings.write_string(&color_hex_str, "#12030")
+		}
+
+		text_edit(&color_hex_str, text_edit_id, 168.0, 7)
+
 		end_div() // end dialog
 	}
 
@@ -726,20 +739,21 @@ color_gradient_rect :: proc(rect: ColorGradientRect, id: UI_ID = 0) {
 }
 
 
-text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
-
-	TextEditCached :: struct {
-		pipe_pos:        int,
-		selection_start: int,
-		selection_end:   int,
-		line_idx:        int,
-	}
-
+text_edit :: proc(
+	value: ^StringBuilder,
+	id: UI_ID = 0,
+	width_px: f32 = 240,
+	max_characters: int = 10000,
+	font_size: f32 = 0,
+) {
 	@(thread_local)
 	g_id: UI_ID = 0
 	@(thread_local)
-	g_cached: TextEditCached = {}
+	g_state_initialized: bool
+	@(thread_local)
+	g_state: edit.State = {}
 
+	font_size := font_size if font_size != 0 else THEME.font_size
 
 	id := id if id != 0 else u64(uintptr(value))
 	text_id := derived_id(id)
@@ -747,42 +761,91 @@ text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
 
 
 	cache := UI_MEMORY.cache
-
-
 	input := UI_MEMORY.cache.input
 	if res.is_focused {
 		if id != g_id {
 			g_id = id
-			g_cached = TextEditCached {
-				pipe_pos = strings.builder_len(value^) - 3, // todo!
+			if !g_state_initialized {
+				g_state_initialized = true
+				edit.init(&g_state, context.allocator, context.allocator)
 			}
+			edit.begin(&g_state, id, value)
 		}
 		for c in input.chars[:input.chars_len] {
-			strings.write_rune(value, c)
-		}
-
-		if (PressFlags{.JustPressed, .JustRepeated} & input.keys[.BACKSPACE] != {}) {
-			rune_count := strings.rune_count(strings.to_string(value^))
-			if rune_count > 0 {
-				if g_cached.pipe_pos >= rune_count {
-					strings.pop_rune(value)
-				} else {
-					// strings.builder
-				}
-
+			if strings.rune_count(strings.to_string(value^)) < max_characters {
+				edit.input_rune(&g_state, c)
 			}
 		}
-		if (PressFlags{.JustPressed, .JustRepeated} & input.keys[.LEFT] != {}) &&
-		   g_cached.pipe_pos > 0 {
-			g_cached.pipe_pos -= 1
+
+		ctrl_pressed := input_pressed(input, .LEFT_CONTROL)
+		shift_pressed := input_pressed(input, .LEFT_SHIFT)
+
+		if input_just_pressed_or_repeated(input, .BACKSPACE) {
+			edit.delete_to(&g_state, .Left)
 		}
-		if (PressFlags{.JustPressed, .JustRepeated} & input.keys[.RIGHT] != {}) &&
-		   g_cached.pipe_pos < strings.builder_len(value^) {
-			g_cached.pipe_pos += 1
+		if input_just_pressed_or_repeated(input, .DELETE) {
+			edit.delete_to(&g_state, .Right)
+		}
+		if input_just_pressed_or_repeated(input, .ENTER) {
+			edit.perform_command(&g_state, .New_Line)
+		}
+		if input_pressed(input, .LEFT_CONTROL) {
+			if input_just_pressed(input, .A) {
+				edit.perform_command(&g_state, .Select_All)
+			}
+			// if input_just_pressed(input, .Z) { // nor working at the moment, I don't understand the undo API of text edit.
+			// 	edit.perform_command(&g_state, .Undo)
+			// }
+			// if input_just_pressed(input, .Y) {
+			// 	edit.perform_command(&g_state, .Redo)
+			// }
+			if input_just_pressed(input, .C) {
+				input_set_clipboard(input, edit.current_selected_text(&g_state))
+			}
+			if input_just_pressed(input, .X) {
+				input_set_clipboard(input, edit.current_selected_text(&g_state))
+				edit.selection_delete(&g_state)
+			}
+			if input_just_pressed(input, .V) {
+				edit.input_text(&g_state, input_get_clipboard(input))
+			}
+		}
+		if input_just_pressed_or_repeated(input, .LEFT) {
+			if shift_pressed {
+				if ctrl_pressed {
+					edit.select_to(&g_state, .Word_Left)
+				} else {
+					edit.select_to(&g_state, .Left)
+				}
+			} else {
+				if ctrl_pressed {
+					edit.move_to(&g_state, .Word_Left)
+				} else {
+					edit.move_to(&g_state, .Left)
+				}
+			}
 		}
 
-		if res.just_pressed {
-			print(cache.cursor_pos)
+		if input_just_pressed_or_repeated(input, .RIGHT) {
+			if shift_pressed {
+				if ctrl_pressed {
+					edit.select_to(&g_state, .Word_Right)
+				} else {
+					edit.select_to(&g_state, .Right)
+				}
+			} else {
+				if ctrl_pressed {
+					edit.move_to(&g_state, .Word_Right)
+				} else {
+					edit.move_to(&g_state, .Right)
+				}
+			}
+		}
+
+
+	} else {
+		if g_id == id {
+			g_id = 0
 		}
 	}
 
@@ -791,21 +854,27 @@ text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
 	border_color: Color = THEME.surface_border if res.is_focused else THEME.surface
 	bg_color: Color = highlight(THEME.surface_deep) if res.is_focused else THEME.surface_deep
 
+	caret_opacity: f32 = 1.0 if math.sin(input.total_secs * 8.0) > 0.0 else 0.0
 	markers_data: MarkersData = {
-		text_id      = text_id,
-		just_pressed = res.just_pressed,
-		is_pressed   = res.is_pressed,
+		text_id         = text_id,
+		just_pressed    = res.just_pressed,
+		just_released   = res.just_released,
+		is_pressed      = res.is_pressed,
+		caret_width     = 4,
+		caret_color     = {THEME.text.r, THEME.text.g, THEME.text.b, caret_opacity},
+		selection_color = THEME.surface_border,
+		shift_pressed   = input_pressed(input, .LEFT_SHIFT),
 	}
-	text(fmt.aprint(g_cached, allocator = context.temp_allocator))
+	// text(fmt.aprint(g_state, allocator = context.temp_allocator))
 	start_div(
 		Div {
-			width = 200,
-			height = 32,
+			width = width_px,
 			color = bg_color,
 			border_color = border_color,
 			border_width = THEME.border_width,
 			border_radius = THEME.border_radius,
-			flags = {.AxisX, .WidthPx, .HeightPx},
+			padding = {8, 8, 4, 4},
+			flags = {.AxisX, .WidthPx},
 		},
 		id = id,
 	)
@@ -815,7 +884,7 @@ text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
 	text(
 		Text {
 			str = str,
-			font_size = THEME.font_size,
+			font_size = font_size,
 			color = THEME.text,
 			shadow = THEME.text_shadow,
 			line_break = .OnCharacter,
@@ -826,15 +895,21 @@ text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
 	end_div()
 
 	// the job of this markers element is to read the TextEditCached from local 
-
+	// markers = caret and selection rectangles
 	MarkersData :: struct {
-		text_id:      UI_ID,
-		is_pressed:   bool,
-		just_pressed: bool,
+		text_id:         UI_ID,
+		is_pressed:      bool,
+		just_pressed:    bool,
+		just_released:   bool,
+		shift_pressed:   bool,
+		caret_width:     f32,
+		caret_color:     Color,
+		selection_color: Color,
 	}
 	set_markers_size :: proc(data: ^MarkersData, max_size: Vec2) -> (used_size: Vec2) {
 		return Vec2{0, 0}
 	}
+
 	add_markers_elements :: proc(
 		data: ^MarkersData,
 		pos: Vec2,
@@ -843,88 +918,169 @@ text_edit_2 :: proc(value: ^StringBuilder, id: UI_ID = 0) {
 		pre_batches: ^[dynamic]PreBatch,
 	) {
 
-
-		text_ctx, ok := UI_MEMORY.text_ids_to_tmp_layouts[data.text_id]
-		cursor_pos := UI_MEMORY.cache.cursor_pos
-		rel_cursor_pos := cursor_pos - pos
+		text_ctx, ok := UI_MEMORY.text_ids_to_tmp_layouts[data.text_id] // nil if text is empty string!
 		assert(ok)
+		assert(text_ctx != nil)
+		byte_count := len(text_ctx.byte_advances)
 
 		// get the glyph we are currently on:
-
-		line_idx := -1
-		str_rune_idx := -1
-		last_rune_idx := 0
+		cursor_pos := UI_MEMORY.cache.cursor_pos
+		rel_cursor_pos := cursor_pos - pos
+		current_byte_idx := byte_count
+		byte_start_idx := 0
 		for line, i in text_ctx.lines {
 			line_min_y := line.baseline_y - line.metrics.ascent
 			line_max_y := line.baseline_y - line.metrics.descent
-			if line_min_y < rel_cursor_pos.y && line_max_y > rel_cursor_pos.y {
-				line_idx = i
-				last_advance: f32 = 0 // todo! this approach does only work with .Left Align
-				for ru in line.rune_advances {
-					last_rune_idx = ru.str_rune_idx
-					if ru.advance > rel_cursor_pos.x { 	// likely wrong
-						if ru.advance - rel_cursor_pos.x > rel_cursor_pos.x - last_advance {
-							// click more at the beginning of a letter
-							str_rune_idx = ru.str_rune_idx
-						} else {
-
-							// click towards end of a letter
-							str_rune_idx = ru.str_rune_idx + 1
+			if line_min_y > rel_cursor_pos.y || line_max_y < rel_cursor_pos.y {
+				byte_start_idx = line.byte_end_idx
+				continue
+			}
+			last_advance: f32 = 0 // todo! this approach does only work with .Left Align
+			outer: for j in byte_start_idx ..< line.byte_end_idx {
+				byte_advance := text_ctx.byte_advances[j]
+				if byte_advance > rel_cursor_pos.x { 	// likely wrong
+					current_byte_idx = j
+					if byte_advance - rel_cursor_pos.x < rel_cursor_pos.x - last_advance {
+						// click is more towards end of a letter
+						// search forward to the next different advance (most likely just 1 byte, but could be more bc of UTF8)
+						for {
+							current_byte_idx += 1
+							if current_byte_idx < byte_count {
+								byte_advance_next := text_ctx.byte_advances[current_byte_idx]
+								if byte_advance_next == 0 {
+									continue
+								}
+							} else {
+								current_byte_idx = byte_count // end of bytes
+							}
+							break outer
 						}
-						break
 					}
-					last_advance = ru.advance
+					break
 				}
-				break
+				last_advance = byte_advance
 			}
+			break
 		}
-		g_cached.line_idx = line_idx
-
 		if data.just_pressed {
-			if str_rune_idx != -1 {
-				assert(str_rune_idx != -1)
-				g_cached.pipe_pos = str_rune_idx
+			if data.shift_pressed {
+				g_state.selection[0] = current_byte_idx
 			} else {
-				g_cached.pipe_pos = last_rune_idx + 1
+				g_state.selection = {current_byte_idx, current_byte_idx}
 			}
 		}
+		if data.is_pressed {
+			g_state.selection[0] = current_byte_idx
+		}
 
-		// draw the cursor:
-		if g_cached.pipe_pos != -1 {
-			found_line: ^LineRun = nil
-			last_advance: f32 = 0
-			outer: for &line in text_ctx.lines {
-				found_line = &line
-				last_advance = 0
-				for ru in line.rune_advances {
-					if ru.str_rune_idx == g_cached.pipe_pos {
-						break outer
-					}
-					last_advance = ru.advance
+		// if there is a selection draw the selection:
+		left_idx, right_idx := edit.sorted_selection(&g_state)
+		if left_idx != right_idx {
+			assert(left_idx < right_idx)
+			// for each line that is part of the selection draw a rect:
+			byte_start_idx: int = 0
+			is_first := true
+			for line in text_ctx.lines {
+				if line.byte_end_idx < left_idx {
+					continue
 				}
-			}
-			if found_line != nil {
-				pipe_size := Vec2{4.0, found_line.metrics.ascent - found_line.metrics.descent}
-				pipe_pos := Vec2 {
-					pos.x + last_advance,
-					pos.y + found_line.baseline_y - found_line.metrics.ascent,
+				defer {is_first = false}
+				is_last :=
+					byte_idx_plus_one(text_ctx.byte_advances[:], line.byte_end_idx) >= right_idx // not correct!!
+				x_left: f32 = 0.0
+				if is_first {
+					x_left = advance_at_byte_minus_one(text_ctx.byte_advances[:], left_idx)
 				}
-
+				x_right: f32 = ---
+				if is_last {
+					x_right = advance_at_byte_minus_one(text_ctx.byte_advances[:], right_idx)
+				} else {
+					x_right = advance_at_byte_minus_one(
+						text_ctx.byte_advances[:],
+						line.byte_end_idx,
+					)
+				}
+				rect_pos := Vec2{pos.x + x_left, pos.y + line.baseline_y - line.metrics.ascent}
+				rect_size := Vec2{x_right - x_left, line.metrics.ascent - line.metrics.descent}
 				add_rect(
 					primitives,
 					pre_batches,
-					pipe_pos,
-					pipe_size,
-					Color{1, 1, 1, 0.9},
+					rect_pos,
+					rect_size,
+					data.selection_color,
 					{},
 					{},
 					{2, 2, 2, 2},
 					{},
 				)
+				if is_last {
+					break
+				}
 			}
-
 		}
 
+		// draw the cursor:
+		should_draw_caret := !data.is_pressed
+		if should_draw_caret {
+			caret_byte_idx := g_state.selection[0]
+			caret_advance: f32 = advance_at_byte_minus_one(
+				text_ctx.byte_advances[:],
+				caret_byte_idx,
+			)
+			care_line: ^LineRun
+			for &line in text_ctx.lines {
+				care_line = &line
+				if line.byte_end_idx >= caret_byte_idx {
+					break
+				}
+			}
+			pipe_pos := Vec2 {
+				pos.x + caret_advance - data.caret_width / 2,
+				pos.y + care_line.baseline_y - care_line.metrics.ascent,
+			}
+			pipe_size := Vec2 {
+				data.caret_width,
+				care_line.metrics.ascent - care_line.metrics.descent,
+			}
+			add_rect(
+				primitives,
+				pre_batches,
+				pipe_pos,
+				pipe_size,
+				data.caret_color,
+				{},
+				{},
+				{2, 2, 2, 2},
+				{},
+			)
+		}
 
 	}
+
+	byte_idx_plus_one :: proc(byte_advances: []f32, idx: int) -> int {
+		// search forward skipping the 0.0s
+		i := idx + 1
+		byte_count := len(byte_advances)
+		for i < byte_count && byte_advances[i] == 0 {
+			i += 1
+		}
+		return i
+	}
+
+	advance_at_byte_minus_one :: proc(byte_advances: []f32, idx: int) -> (advance: f32) {
+		// search back (most likely 1 byte) from caret byte idx to advance of previous letter
+		i := idx
+		for {
+			if i == 0 {
+				return 0.0
+			}
+			i -= 1
+			advance = byte_advances[i]
+			if advance != 0.0 {
+				return advance
+			}
+		}
+		return
+	}
+
 }

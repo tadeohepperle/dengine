@@ -84,13 +84,14 @@ font_create :: proc(
 	font.name = font_with_string_keys.name
 	font.glyphs = make_map(map[rune]Glyph, len(font_with_string_keys.glyphs))
 	for s, v in font_with_string_keys.glyphs {
-		if len(s) != 1 {
-			error = "Only single character strings allowed as glyph keys!"
-			return
-		}
-		for r in s {
+
+
+		for r, i in s {
 			font.glyphs[r] = v
-			break
+			if i != 0 {
+				error = "Only single character strings allowed as glyph keys!"
+				return
+			}
 		}
 	}
 	delete(font_with_string_keys.glyphs)
