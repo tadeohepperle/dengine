@@ -302,7 +302,7 @@ start_window :: proc(title: string) {
 		Div {
 			offset = window_pos,
 			width = 300,
-			border_radius = {5, 5, 5, 5},
+			border_radius = THEME.border_radius,
 			color = THEME.background,
 			flags = {.Absolute, .WidthPx},
 			padding = {16, 16, 8, 16},
@@ -745,6 +745,8 @@ text_edit :: proc(
 	width_px: f32 = 240,
 	max_characters: int = 10000,
 	font_size: f32 = 0,
+	align: TextAlign = TextAlign.Left,
+	placeholder: string = "Type something...",
 ) {
 	@(thread_local)
 	g_id: UI_ID = 0
@@ -753,7 +755,7 @@ text_edit :: proc(
 	@(thread_local)
 	g_state: edit.State = {}
 
-	font_size := font_size if font_size != 0 else THEME.font_size
+	font_size := font_size if font_size != 0 else THEME.font_size_sm
 
 	id := id if id != 0 else u64(uintptr(value))
 	text_id := derived_id(id)
@@ -851,8 +853,9 @@ text_edit :: proc(
 
 	str := strings.to_string(value^)
 
+
 	border_color: Color = THEME.surface_border if res.is_focused else THEME.surface
-	bg_color: Color = highlight(THEME.surface_deep) if res.is_focused else THEME.surface_deep
+	bg_color: Color = THEME.surface_deep
 
 	caret_opacity: f32 = 1.0 if math.sin(input.total_secs * 8.0) > 0.0 else 0.0
 	markers_data: MarkersData = {
@@ -862,10 +865,9 @@ text_edit :: proc(
 		is_pressed      = res.is_pressed,
 		caret_width     = 4,
 		caret_color     = {THEME.text.r, THEME.text.g, THEME.text.b, caret_opacity},
-		selection_color = THEME.surface_border,
+		selection_color = THEME.surface,
 		shift_pressed   = input_pressed(input, .LEFT_SHIFT),
 	}
-	// text(fmt.aprint(g_state, allocator = context.temp_allocator))
 	start_div(
 		Div {
 			width = width_px,
@@ -881,17 +883,34 @@ text_edit :: proc(
 	if res.is_focused {
 		custom_ui_element(markers_data, set_markers_size, add_markers_elements)
 	}
-	text(
-		Text {
-			str = str,
-			font_size = font_size,
-			color = THEME.text,
-			shadow = THEME.text_shadow,
-			line_break = .OnCharacter,
-			pointer_pass_through = true,
-		},
-		id = text_id,
-	)
+	if !res.is_focused && len(str) == 0 {
+		text(
+			Text {
+				str = placeholder,
+				font_size = font_size,
+				color = THEME.text_secondary,
+				shadow = THEME.text_shadow,
+				line_break = .OnCharacter,
+				pointer_pass_through = true,
+				align = align,
+			},
+			id = text_id,
+		)
+	} else {
+		text(
+			Text {
+				str = str,
+				font_size = font_size,
+				color = THEME.text,
+				shadow = THEME.text_shadow,
+				line_break = .OnCharacter,
+				pointer_pass_through = true,
+				align = align,
+			},
+			id = text_id,
+		)
+	}
+
 	end_div()
 
 	// the job of this markers element is to read the TextEditCached from local 
@@ -935,9 +954,9 @@ text_edit :: proc(
 				byte_start_idx = line.byte_end_idx
 				continue
 			}
-			last_advance: f32 = 0 // todo! this approach does only work with .Left Align
+			last_advance: f32 = line.x_offset
 			outer: for j in byte_start_idx ..< line.byte_end_idx {
-				byte_advance := text_ctx.byte_advances[j]
+				byte_advance := text_ctx.byte_advances[j] + line.x_offset
 				if byte_advance > rel_cursor_pos.x { 	// likely wrong
 					current_byte_idx = j
 					if byte_advance - rel_cursor_pos.x < rel_cursor_pos.x - last_advance {
@@ -987,18 +1006,21 @@ text_edit :: proc(
 				defer {is_first = false}
 				is_last :=
 					byte_idx_plus_one(text_ctx.byte_advances[:], line.byte_end_idx) >= right_idx // not correct!!
-				x_left: f32 = 0.0
+				x_left: f32 = line.x_offset
 				if is_first {
-					x_left = advance_at_byte_minus_one(text_ctx.byte_advances[:], left_idx)
+					x_left =
+						advance_at_byte_minus_one(text_ctx.byte_advances[:], left_idx) +
+						line.x_offset
 				}
 				x_right: f32 = ---
 				if is_last {
-					x_right = advance_at_byte_minus_one(text_ctx.byte_advances[:], right_idx)
+					x_right =
+						advance_at_byte_minus_one(text_ctx.byte_advances[:], right_idx) +
+						line.x_offset
 				} else {
-					x_right = advance_at_byte_minus_one(
-						text_ctx.byte_advances[:],
-						line.byte_end_idx,
-					)
+					x_right =
+						advance_at_byte_minus_one(text_ctx.byte_advances[:], line.byte_end_idx) +
+						line.x_offset
 				}
 				rect_pos := Vec2{pos.x + x_left, pos.y + line.baseline_y - line.metrics.ascent}
 				rect_size := Vec2{x_right - x_left, line.metrics.ascent - line.metrics.descent}
@@ -1020,13 +1042,10 @@ text_edit :: proc(
 		}
 
 		// draw the cursor:
-		should_draw_caret := !data.is_pressed
+		should_draw_caret := !(data.is_pressed && left_idx != right_idx) // dont draw while selecting area.
 		if should_draw_caret {
 			caret_byte_idx := g_state.selection[0]
-			caret_advance: f32 = advance_at_byte_minus_one(
-				text_ctx.byte_advances[:],
-				caret_byte_idx,
-			)
+
 			care_line: ^LineRun
 			for &line in text_ctx.lines {
 				care_line = &line
@@ -1034,6 +1053,9 @@ text_edit :: proc(
 					break
 				}
 			}
+			caret_advance: f32 =
+				advance_at_byte_minus_one(text_ctx.byte_advances[:], caret_byte_idx) +
+				care_line.x_offset
 			pipe_pos := Vec2 {
 				pos.x + caret_advance - data.caret_width / 2,
 				pos.y + care_line.baseline_y - care_line.metrics.ascent,

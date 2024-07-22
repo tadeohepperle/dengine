@@ -966,8 +966,7 @@ merge_line_metrics_to_max :: proc(a: LineMetrics, b: LineMetrics) -> (res: LineM
 	return
 }
 
-finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_size: Vec2) {
-	max_size = ctx.max_size
+finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (used_size: Vec2) {
 	ctx.current_line.byte_end_idx = ctx.last_byte_idx
 	ctx.current_line.glyphs_end_idx = UI_MEMORY.glyphs_len
 	append(&ctx.lines, ctx.current_line)
@@ -1000,9 +999,13 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_si
 		div.pos.y = bottom_y - div.size.y
 	} // Todo: Test this, I think I just ported this over from Rust but not sure if divs in text layout are supported yet.
 
-	max_size = Vec2{min(max_size.x, max_line_width), min(max_size.y, base_y)}
 
-	if ctx.align != .Left {
+	max_size := ctx.max_size
+	if ctx.align == .Left {
+		used_size = Vec2{min(max_size.x, max_line_width), min(max_size.y, base_y)}
+	} else {
+		used_size = Vec2{max_size.x, min(max_size.y, base_y)}
+		byte_start_idx: int = 0
 		for &line in ctx.lines {
 			offset: f32 = ---
 			line_width := line.advance
@@ -1020,6 +1023,9 @@ finalize_text_layout_ctx_and_return_size :: proc(ctx: ^TextLayoutCtx) -> (max_si
 			for &g in UI_MEMORY.glyphs[line.glyphs_start_idx:line.glyphs_end_idx] {
 				g.pos.x += offset
 			}
+			line.advance += offset
+			line.x_offset = offset
+			byte_start_idx = line.byte_end_idx
 		}
 	}
 
@@ -1033,13 +1039,14 @@ XOffsetAndAdvance :: struct {
 
 LineRun :: struct {
 	baseline_y:       f32,
+	x_offset:         f32, // starting x pos of line (while advance is ending x pos)
 	// current advance where to place the next glyph if still space
 	advance:          f32,
 	// TODO! add width and use instead of advance. width:            f32, // almost the same as advance, but could be slightly different: the last glyph is 
 	glyphs_start_idx: int,
 	glyphs_end_idx:   int,
 	metrics:          LineMetrics,
-	byte_end_idx:     int,
+	byte_end_idx:     int, // inclusive!
 }
 
 DivAndLineIdx :: struct {
