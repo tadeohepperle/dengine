@@ -75,6 +75,7 @@ Engine :: struct {
 	gizmos_renderer:      GizmosRenderer,
 	ui_renderer:          UiRenderer,
 	color_mesh_renderer:  ColorMeshRenderer,
+	terrain_renderer:     TerrainRenderer,
 	cursor_2d_hit_pos:    Vec2,
 }
 
@@ -147,6 +148,13 @@ engine_create :: proc(
 		engine.settings.default_font_color,
 		engine.settings.default_font_size,
 	)
+	terrain_renderer_create(
+		&terrain_renderer,
+		device,
+		queue,
+		&shader_registry,
+		globals_uniform.bind_group_layout,
+	)
 }
 
 engine_destroy :: proc(engine: ^Engine) {
@@ -157,6 +165,7 @@ engine_destroy :: proc(engine: ^Engine) {
 	gizmos_renderer_destroy(&engine.gizmos_renderer)
 	color_mesh_renderer_destroy(&engine.color_mesh_renderer)
 	ui_renderer_destroy(&engine.ui_renderer)
+	terrain_renderer_destroy(&engine.terrain_renderer)
 	wgpu.QueueRelease(engine.queue)
 	wgpu.DeviceDestroy(engine.device)
 	wgpu.InstanceRelease(engine.instance)
@@ -202,6 +211,8 @@ _engine_hot_reload_shaders :: proc(engine: ^Engine) {
 		&engine.bloom_renderer.final_upsample_pipeline,
 		&engine.ui_renderer.rect_pipeline,
 		&engine.ui_renderer.glyph_pipeline,
+		&engine.color_mesh_renderer.pipeline,
+		&engine.terrain_renderer.pipeline,
 	}
 	shader_registry_hot_reload(&engine.shader_registry, pipelines[:])
 }
@@ -374,6 +385,16 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 		},
 	)
 	defer wgpu.RenderPassEncoderRelease(hdr_pass)
+
+	terrain_renderer_render(
+		&engine.terrain_renderer,
+		hdr_pass,
+		engine.globals_uniform.bind_group,
+		scene.terrain_meshes[:],
+		scene.terrain_textures,
+	)
+
+
 	sprite_renderer_render(&engine.sprite_renderer, hdr_pass, engine.globals_uniform.bind_group)
 	color_mesh_renderer_render(
 		&engine.color_mesh_renderer,

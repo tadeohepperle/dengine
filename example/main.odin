@@ -13,6 +13,31 @@ main :: proc() {
 	d.init()
 	defer {d.deinit()}
 
+	fmt.println("sizeL", size_of(d.TerrainVertex))
+
+	terrain_textures_paths := [?]string {
+		"./assets/t_0.png",
+		"./assets/t_1.png",
+		"./assets/t_2.png",
+		"./assets/t_3.png",
+	}
+	terrain_textures, terrain_textures_err := d.load_texture_array(terrain_textures_paths[:])
+	assert(terrain_textures_err == "")
+
+	d.SCENE.terrain_textures = &terrain_textures
+
+	terrain_mesh := d.terrain_mesh_create(
+		{
+			d.TerrainVertex{pos = {0, 0}, ty_indices = {0, 1, 2}, ty_weights = {1, 0, 0}},
+			d.TerrainVertex{pos = {5, 7}, ty_indices = {0, 1, 2}, ty_weights = {0, 1, 0}},
+			d.TerrainVertex{pos = {10, 0}, ty_indices = {0, 1, 2}, ty_weights = {0, 0, 1}},
+		},
+		d.ENGINE.device,
+		d.ENGINE.queue,
+	)
+	fmt.println(terrain_mesh)
+
+
 	corn, corn_err := d.load_texture_as_tile("./assets/corn.png")
 	sprite, sprite_err := d.load_texture_as_tile("./assets/can.png")
 	assert(corn_err == nil)
@@ -49,6 +74,7 @@ main :: proc() {
 
 		d.end_window()
 
+		d.draw_terrain_mesh(&terrain_mesh)
 
 		for y in -5 ..= 5 {
 			d.gizmos_line(Vec2{-5, f32(y)}, Vec2{5, f32(y)}, color2)

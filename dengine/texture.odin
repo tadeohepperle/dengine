@@ -1,5 +1,6 @@
 package dengine
 
+import "core:fmt"
 import "core:image"
 import "core:image/png"
 import wgpu "vendor:wgpu"
@@ -9,7 +10,7 @@ IMAGE_FORMAT :: wgpu.TextureFormat.RGBA8Unorm
 DEFAULT_TEXTURESETTINGS :: TextureSettings {
 	label        = "",
 	format       = IMAGE_FORMAT,
-	address_mode = .ClampToEdge,
+	address_mode = .Repeat,
 	mag_filter   = .Linear,
 	min_filter   = .Nearest,
 	usage        = {.TextureBinding, .CopyDst},
@@ -33,23 +34,22 @@ Texture :: struct {
 	bind_group: wgpu.BindGroup,
 }
 
-
 texture_from_image_path :: proc(
 	device: wgpu.Device,
 	queue: wgpu.Queue,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
 	path: string,
+	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
 ) -> (
 	texture: Texture,
 	error: image.Error,
 ) {
-	img, img_error := image.load_from_file(path)
+	img, img_error := image.load_from_file(path, options = image.Options{.alpha_add_if_missing})
 	if img_error != nil {
 		error = img_error
 		return
 	}
 	defer {image.destroy(img)}
-	texture = texture_from_image(device, queue, settings, img)
+	texture = texture_from_image(device, queue, img, settings)
 	return
 }
 
@@ -57,8 +57,8 @@ COPY_BYTES_PER_ROW_ALIGNMENT: u32 : 256 // Buffer-Texture copies must have [`byt
 texture_from_image :: proc(
 	device: wgpu.Device,
 	queue: wgpu.Queue,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
 	img: ^image.Image,
+	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
 ) -> (
 	texture: Texture,
 ) {
@@ -127,6 +127,7 @@ texture_create :: proc(
 ) {
 	assert(wgpu.TextureUsage.TextureBinding in settings.usage)
 	texture.settings = settings
+	texture.size = size
 	descriptor := wgpu.TextureDescriptor {
 		usage = settings.usage,
 		dimension = ._2D,
@@ -185,8 +186,8 @@ texture_destroy :: proc(texture: ^Texture) {
 
 rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
 	@(static)
-	rgba_bind_group_layout: wgpu.BindGroupLayout
-	if rgba_bind_group_layout == nil {
+	layout: wgpu.BindGroupLayout
+	if layout == nil {
 		entries := [?]wgpu.BindGroupLayoutEntry {
 			wgpu.BindGroupLayoutEntry {
 				binding = 0,
@@ -203,7 +204,7 @@ rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayo
 				sampler = wgpu.SamplerBindingLayout{type = .Filtering},
 			},
 		}
-		rgba_bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+		layout = wgpu.DeviceCreateBindGroupLayout(
 			device,
 			&wgpu.BindGroupLayoutDescriptor {
 				entryCount = uint(len(entries)),
@@ -211,10 +212,222 @@ rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayo
 			},
 		)
 	}
-	return rgba_bind_group_layout
+	return layout
 }
+
 
 TextureTile :: struct {
 	texture: ^Texture,
 	uv:      Aabb,
+}
+
+
+TextureArray :: struct {
+	settings:   TextureSettings,
+	size:       UVec2,
+	layers:     u32,
+	texture:    wgpu.Texture,
+	view:       wgpu.TextureView,
+	sampler:    wgpu.Sampler,
+	bind_group: wgpu.BindGroup,
+}
+
+rgba_texture_array_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
+	@(static)
+	layout: wgpu.BindGroupLayout
+	if layout == nil {
+		entries := [?]wgpu.BindGroupLayoutEntry {
+			wgpu.BindGroupLayoutEntry {
+				binding = 0,
+				visibility = {.Fragment},
+				texture = wgpu.TextureBindingLayout {
+					sampleType = .Float,
+					viewDimension = ._2DArray,
+					multisampled = false,
+				},
+			},
+			wgpu.BindGroupLayoutEntry {
+				binding = 1,
+				visibility = {.Fragment},
+				sampler = wgpu.SamplerBindingLayout{type = .Filtering},
+			},
+		}
+		layout = wgpu.DeviceCreateBindGroupLayout(
+			device,
+			&wgpu.BindGroupLayoutDescriptor {
+				entryCount = uint(len(entries)),
+				entries = &entries[0],
+			},
+		)
+	}
+	return layout
+}
+
+texture_array_create :: proc(
+	device: wgpu.Device,
+	size: UVec2,
+	layers: u32,
+	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+) -> (
+	texture_array: TextureArray,
+) {
+	assert(wgpu.TextureUsage.TextureBinding in settings.usage)
+	texture_array.settings = settings
+	texture_array.size = size
+	texture_array.layers = layers
+	descriptor := wgpu.TextureDescriptor {
+		usage = settings.usage,
+		dimension = ._2D,
+		size = wgpu.Extent3D{width = size.x, height = size.y, depthOrArrayLayers = layers},
+		format = settings.format,
+		mipLevelCount = 1,
+		sampleCount = 1,
+		viewFormatCount = 1,
+		viewFormats = &texture_array.settings.format,
+	}
+	texture_array.texture = wgpu.DeviceCreateTexture(device, &descriptor)
+	texture_view_descriptor := wgpu.TextureViewDescriptor {
+		format          = settings.format,
+		dimension       = ._2DArray,
+		baseMipLevel    = 0,
+		mipLevelCount   = 1,
+		baseArrayLayer  = 0,
+		arrayLayerCount = layers,
+		aspect          = .All,
+	}
+	texture_array.view = wgpu.TextureCreateView(texture_array.texture, &texture_view_descriptor)
+
+	sampler_descriptor := wgpu.SamplerDescriptor {
+		addressModeU  = settings.address_mode,
+		addressModeV  = settings.address_mode,
+		addressModeW  = settings.address_mode,
+		magFilter     = settings.mag_filter,
+		minFilter     = settings.min_filter,
+		mipmapFilter  = .Nearest,
+		maxAnisotropy = 1,
+		// ...
+	}
+	texture_array.sampler = wgpu.DeviceCreateSampler(device, &sampler_descriptor)
+
+	bind_group_descriptor_entries := [?]wgpu.BindGroupEntry {
+		wgpu.BindGroupEntry{binding = 0, textureView = texture_array.view},
+		wgpu.BindGroupEntry{binding = 1, sampler = texture_array.sampler},
+	}
+	bind_group_descriptor := wgpu.BindGroupDescriptor {
+		layout     = rgba_texture_array_bind_group_layout_cached(device),
+		entryCount = uint(len(bind_group_descriptor_entries)),
+		entries    = &bind_group_descriptor_entries[0],
+	}
+	texture_array.bind_group = wgpu.DeviceCreateBindGroup(device, &bind_group_descriptor)
+	return
+}
+
+
+texture_array_destroy :: proc(texture_array: ^TextureArray) {
+	wgpu.BindGroupRelease(texture_array.bind_group)
+	wgpu.SamplerRelease(texture_array.sampler)
+	wgpu.TextureViewRelease(texture_array.view)
+	wgpu.TextureRelease(texture_array.texture)
+}
+
+texture_array_from_image_paths :: proc(
+	device: wgpu.Device,
+	queue: wgpu.Queue,
+	paths: []string,
+	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+) -> (
+	texture_array: TextureArray,
+	error: string,
+) {
+	images := make([dynamic]^image.Image)
+	defer {delete(images)}
+	defer {for img in images {
+			image.destroy(img)
+		}}
+	width: int
+	height: int
+	for path, i in paths {
+		img, img_error := image.load_from_file(
+			path,
+			options = image.Options{.alpha_add_if_missing},
+		)
+		if img_error != nil {
+			error = fmt.aprint(img_error, allocator = context.temp_allocator)
+			return
+		}
+		if i == 0 {
+			width = img.width
+			height = img.height
+		} else {
+			if img.width != width || img.height != height {
+				error = fmt.aprintf(
+					"Image at path %s has size %d,%d but it should be %d,%d",
+					path,
+					img.width,
+					img.height,
+					width,
+					height,
+				)
+				return
+			}
+		}
+		append(&images, img)
+	}
+	texture_array = texture_array_from_images(device, queue, images[:], settings)
+	return
+}
+
+
+texture_array_from_images :: proc(
+	device: wgpu.Device,
+	queue: wgpu.Queue,
+	images: []^image.Image,
+	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+) -> (
+	texture_array: TextureArray,
+) {
+	assert(len(images) > 0)
+
+	width := images[0].width
+	height := images[0].height
+	for e in images {
+		assert(e.width == width)
+		assert(e.height == height)
+	}
+	size := UVec2{u32(width), u32(height)}
+	layers := u32(len(images))
+	texture_array = texture_array_create(device, size, layers, settings)
+
+	assert(settings.format == IMAGE_FORMAT)
+	block_size: u32 = 4
+	bytes_per_row :=
+		((size.x * block_size + COPY_BYTES_PER_ROW_ALIGNMENT - 1) &
+			~(COPY_BYTES_PER_ROW_ALIGNMENT - 1))
+	data_layout := wgpu.TextureDataLayout {
+		offset       = 0,
+		bytesPerRow  = bytes_per_row,
+		rowsPerImage = size.y,
+	}
+	print(data_layout)
+
+	for img, i in images {
+		print(img.channels)
+		print(uint(len(img.pixels.buf)))
+		image_copy := wgpu.ImageCopyTexture {
+			texture  = texture_array.texture,
+			mipLevel = 0,
+			origin   = {0, 0, u32(i)},
+			aspect   = .All,
+		}
+		wgpu.QueueWriteTexture(
+			queue,
+			&image_copy,
+			raw_data(img.pixels.buf),
+			uint(len(img.pixels.buf)),
+			&data_layout,
+			&wgpu.Extent3D{width = size.x, height = size.y, depthOrArrayLayers = 1},
+		)
+		print("write image success", i)
+	}
+	return
 }

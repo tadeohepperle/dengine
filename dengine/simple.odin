@@ -42,7 +42,7 @@ load_texture_as_tile :: proc(
 	error: image.Error,
 ) {
 	texture := new(Texture)
-	texture^, error = texture_from_image_path(ENGINE.device, ENGINE.queue, settings, path)
+	texture^, error = texture_from_image_path(ENGINE.device, ENGINE.queue, path, settings)
 	if error != nil {
 		return
 	}
@@ -61,11 +61,25 @@ load_texture :: proc(
 	texture: Texture,
 	error: image.Error,
 ) {
-	return texture_from_image_path(ENGINE.device, ENGINE.queue, settings, path)
+	return texture_from_image_path(ENGINE.device, ENGINE.queue, path, settings)
+}
+
+load_texture_array :: proc(
+	paths: []string,
+	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+) -> (
+	texture: TextureArray,
+	error: string,
+) {
+	return texture_array_from_image_paths(ENGINE.device, ENGINE.queue, paths, settings)
 }
 
 draw_sprite :: #force_inline proc(sprite: Sprite) {
 	append(&SCENE.sprites, sprite)
+}
+
+draw_terrain_mesh :: #force_inline proc(mesh: ^TerrainMesh) {
+	append(&SCENE.terrain_meshes, mesh)
 }
 
 gizmos_aabb :: proc(aabb: Aabb, color := Color{1, 0, 0, 1}, mode := GizmosMode.WORLD_SPACE_2D) {

@@ -17,7 +17,9 @@ Camera :: struct {
 
 DVec2 :: [2]f64
 Vec2 :: [2]f32
+Vec3 :: [3]f32
 UVec2 :: [2]u32
+UVec3 :: [3]u32
 IVec2 :: [2]i32
 
 next_pow2_number :: proc(n: int) -> int {
