@@ -636,7 +636,7 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 			strings.write_string(&color_hex_str, "#12030")
 		}
 
-		text_edit(&color_hex_str, text_edit_id, 168.0, 7)
+		text_edit(&color_hex_str, text_edit_id, 168.0, 7, placeholder = "#000000", align = .Center)
 
 		end_div() // end dialog
 	}
@@ -748,6 +748,7 @@ text_edit :: proc(
 	font_size: f32 = 0,
 	align: TextAlign = TextAlign.Left,
 	placeholder: string = "Type something...",
+	line_break: LineBreak = .OnCharacter,
 ) {
 	@(thread_local)
 	g_id: UI_ID = 0
@@ -891,7 +892,7 @@ text_edit :: proc(
 				font_size = font_size,
 				color = THEME.text_secondary,
 				shadow = THEME.text_shadow,
-				line_break = .OnCharacter,
+				line_break = line_break,
 				pointer_pass_through = true,
 				align = align,
 			},
@@ -904,7 +905,7 @@ text_edit :: proc(
 				font_size = font_size,
 				color = THEME.text,
 				shadow = THEME.text_shadow,
-				line_break = .OnCharacter,
+				line_break = line_break,
 				pointer_pass_through = true,
 				align = align,
 			},

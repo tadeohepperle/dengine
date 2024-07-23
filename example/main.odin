@@ -25,10 +25,7 @@ main :: proc() {
 	snake := snake_create({3, 3})
 
 	text_to_edit: strings.Builder
-	strings.write_string(
-		&text_to_edit,
-		"This is text that I like to share with the entire Wärld!",
-	)
+	strings.write_string(&text_to_edit, "I made this UI from scratch in Odin!")
 
 	background_color: Color = Color{0, 0.01, 0.02, 1.0}
 	color2: Color = d.Color_Beige
@@ -139,6 +136,7 @@ snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 		snake.points[i] = d.lerp(current_pos, desired_pos, s)
 	}
 
+	color := d.Color{0, 0, 2.0, 1.0} + 1
 	clear(&snake.vertices)
 	clear(&snake.indices)
 	for i in 0 ..< SNAKE_PTS {
@@ -158,9 +156,7 @@ snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 		dir_t := Vec2{-dir.y, dir.x}
 
 		f := f32(i) / f32(SNAKE_PTS)
-		s := math.sin((d.ENGINE.total_secs + f) * 8.0) * 0.1 + 0.5
 		body_width: f32 = 0.4 * (1.0 - f)
-		color := d.Color{0, 0, s * 2.0, 1.0} + 1
 		append(&snake.vertices, d.ColorMeshVertex{pos = pt + dir_t * body_width, color = color})
 		append(&snake.vertices, d.ColorMeshVertex{pos = pt - dir_t * body_width, color = color})
 		base_idx := u32(i * 2)
@@ -173,22 +169,44 @@ snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 			append(&snake.indices, base_idx + 1)
 		}
 	}
+	// add a circle for the head:
+	circle_left := snake.vertices[0].pos
+	circle_right := snake.vertices[1].pos
+	dir := (circle_right - circle_left) / 2
+	mapping_matrix: matrix[2, 2]f32 = {dir.x, dir.y, dir.y, -dir.x} // (1,0) mapped to dir.x, dir.y.   (0,1) mapped to dir.y, -dir.x
+	head_pt := snake.points[0]
+	CIRCLE_N :: 10
+	for i in 1 ..< CIRCLE_N {
+		angle := math.PI * f32(i) / f32(CIRCLE_N)
+		unit_circle_pt := Vec2{math.cos(angle), math.sin(angle)}
+		pos := head_pt + mapping_matrix * unit_circle_pt
+		append(&snake.vertices, d.ColorMeshVertex{pos = pos, color = color})
+
+		v_idx_next := u32(len(snake.vertices))
+		v_idx := v_idx_next - 1
+		if i == CIRCLE_N - 1 {
+			v_idx_next = 0 // right side of circle (second pt of mesh)
+		}
+		append(&snake.indices, 1)
+		append(&snake.indices, v_idx)
+		append(&snake.indices, v_idx_next)
+	}
 }
 
 snake_draw :: proc(snake: ^Snake) {
 	white := d.TextureTile {
 		texture = &d.ENGINE.ui_renderer.white_px_texture,
 	}
-	for p in snake.points {
-		d.draw_sprite(
-			d.Sprite {
-				texture = white,
-				pos = p,
-				size = {0.1, 0.1},
-				rotation = 0,
-				color = {1, 0, 0, 1},
-			},
-		)
-	}
+	// for p in snake.vertices {
+	// 	d.draw_sprite(
+	// 		d.Sprite {
+	// 			texture = white,
+	// 			pos = p.pos,
+	// 			size = {0.1, 0.1},
+	// 			rotation = 0,
+	// 			color = {1, 0, 0, 1},
+	// 		},
+	// 	)
+	// }
 	d.draw_color_mesh_indexed(snake.vertices[:], snake.indices[:])
 }
