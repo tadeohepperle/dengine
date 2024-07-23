@@ -71,7 +71,7 @@ button :: proc(title: string, id: string = "") -> BtnInteraction {
 	start_div(
 		Div {
 			lerp_speed = 16,
-			flags = {.LerpStyle, .CrossAlignCenter, .HeightPx, .AxisX},
+			flags = {.CrossAlignCenter, .HeightPx, .AxisX, .LerpStyle},
 			padding = {12, 12, 0, 0},
 			height = THEME.control_standard_height,
 			color = color,
@@ -390,6 +390,7 @@ check_box :: proc(value: ^bool, title: string, id: UI_ID = 0) {
 	}
 }
 
+@(private)
 _check_box_inner :: #force_inline proc(checked: bool, label: string, id: UI_ID) -> BtnInteraction {
 	res := ui_btn_interaction(id)
 	text_color: Color = ---

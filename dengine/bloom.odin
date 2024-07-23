@@ -1,6 +1,5 @@
 package dengine
 
-
 import wgpu "vendor:wgpu"
 
 N_BLOOM_TEXTURES :: 9
@@ -218,6 +217,7 @@ bloom_renderer_resize :: proc(rend: ^BloomRenderer, size: UVec2) {
 	_create_bloom_textures(rend, size)
 }
 
+@(private)
 _create_bloom_textures :: proc(rend: ^BloomRenderer, size: UVec2) {
 	BLOOM_TEXTURE_SETTINGS := TextureSettings {
 		label        = "bloom texture",

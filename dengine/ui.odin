@@ -453,11 +453,11 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 				cached_data: DivCached
 
 				if lerp_style {
-					new_cached.data.div.color = lerp(new_cached.data.div.color, var.color, s)
+					new_cached.data.div.color = lerp(old_cached.data.div.color, var.color, s)
 					var.color = new_cached.data.div.color
 
 					new_cached.data.div.border_color = lerp(
-						new_cached.data.div.border_color,
+						old_cached.data.div.border_color,
 						var.border_color,
 						s,
 					)
@@ -497,7 +497,7 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 	}
 }
 
-
+@(private)
 _pre_add_ui_element :: #force_inline proc() {
 	if UI_MEMORY.elements_len == MAX_UI_ELEMENTS {
 		fmt.panicf("Too many Ui Elements (MAX_UI_ELEMENTS = %d)!", MAX_UI_ELEMENTS)

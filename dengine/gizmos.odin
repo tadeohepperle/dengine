@@ -84,7 +84,7 @@ gizmos_renderer_render :: proc(
 	}
 }
 
-gizmos_line :: #force_inline proc(
+gizmos_renderer_add_line :: #force_inline proc(
 	rend: ^GizmosRenderer,
 	from: Vec2,
 	to: Vec2,
@@ -96,7 +96,7 @@ gizmos_line :: #force_inline proc(
 }
 
 
-gizmos_aabb :: proc(
+gizmos_renderer_add_aabb :: proc(
 	rend: ^GizmosRenderer,
 	using aabb: Aabb,
 	color := Color{1, 0, 0, 1},
@@ -106,14 +106,14 @@ gizmos_aabb :: proc(
 	b := Vec2{min.x, max.y}
 	c := max
 	d := Vec2{max.x, min.y}
-	gizmos_line(rend, a, b, color, mode)
-	gizmos_line(rend, b, c, color, mode)
-	gizmos_line(rend, c, d, color, mode)
-	gizmos_line(rend, d, a, color, mode)
+	gizmos_renderer_add_line(rend, a, b, color, mode)
+	gizmos_renderer_add_line(rend, b, c, color, mode)
+	gizmos_renderer_add_line(rend, c, d, color, mode)
+	gizmos_renderer_add_line(rend, d, a, color, mode)
 }
 
 
-gizmos_rect :: proc(
+gizmos_renderer_add_rect :: proc(
 	rend: ^GizmosRenderer,
 	center: Vec2,
 	size: Vec2,
@@ -125,10 +125,10 @@ gizmos_rect :: proc(
 	b := center + Vec2{h.x, h.y}
 	c := center + Vec2{h.x, -h.y}
 	d := center + Vec2{-h.x, -h.y}
-	gizmos_line(rend, a, b, color, mode)
-	gizmos_line(rend, b, c, color, mode)
-	gizmos_line(rend, c, d, color, mode)
-	gizmos_line(rend, d, a, color, mode)
+	gizmos_renderer_add_line(rend, a, b, color, mode)
+	gizmos_renderer_add_line(rend, b, c, color, mode)
+	gizmos_renderer_add_line(rend, c, d, color, mode)
+	gizmos_renderer_add_line(rend, d, a, color, mode)
 }
 
 gizmos_renderer_destroy :: proc(rend: ^GizmosRenderer) {

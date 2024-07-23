@@ -6,13 +6,11 @@ Scene :: struct {
 	sprites: [dynamic]Sprite,
 }
 
-scene_create :: proc() -> ^Scene {
-	scene := new(Scene)
+scene_create :: proc(scene: ^Scene) {
 	scene.camera = Camera {
 		pos      = {0, 0},
 		y_height = 10,
 	}
-	return scene
 }
 
 scene_destroy :: proc(scene: ^Scene) {

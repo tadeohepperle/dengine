@@ -54,7 +54,7 @@ SpriteBatch :: struct {
 	key:       u64,
 }
 
-
+@(private)
 _sort_and_batch_sprites :: proc(
 	sprites: []Sprite,
 	batches: ^[dynamic]SpriteBatch,
@@ -114,6 +114,7 @@ _sort_and_batch_sprites :: proc(
 	batches[len(batches) - 1].end_idx = len(instances)
 }
 
+@(private)
 _sprite_batch_key :: #force_inline proc(sprite: ^Sprite) -> u64 {
 	return u64(uintptr(sprite.texture.texture))
 }

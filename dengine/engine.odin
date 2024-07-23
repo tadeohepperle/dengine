@@ -8,7 +8,6 @@ import glfw "vendor:glfw"
 import wgpu "vendor:wgpu"
 import wgpu_glfw "vendor:wgpu/glfwglue"
 
-
 HOT_RELOAD_SHADERS :: true
 DEBUG_UI_GIZMOS :: false
 
@@ -75,6 +74,15 @@ Engine :: struct {
 	sprite_renderer:      SpriteRenderer,
 	gizmos_renderer:      GizmosRenderer,
 	ui_renderer:          UiRenderer,
+	color_mesh_renderer:  ColorMeshRenderer,
+	cursor_2d_hit_pos:    Vec2,
+}
+
+cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
+
+	p := (cursor_pos - (screen_size / 2)) * 2.0 / screen_size.y * camera.y_height
+	p.x = -p.x
+	return camera.pos - p
 }
 
 Globals :: struct {
@@ -86,7 +94,10 @@ Globals :: struct {
 	_pad:        f32,
 }
 
-engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
+engine_create :: proc(
+	using engine: ^Engine,
+	engine_settings: EngineSettings = DEFAULT_ENGINE_SETTINGS,
+) {
 
 	engine.settings = engine_settings
 	_init_glfw_window(engine)
@@ -119,6 +130,13 @@ engine_create :: proc(using engine: ^Engine, engine_settings: EngineSettings) {
 		&shader_registry,
 		globals_uniform.bind_group_layout,
 	)
+	color_mesh_renderer_create(
+		&color_mesh_renderer,
+		device,
+		queue,
+		&shader_registry,
+		globals_uniform.bind_group_layout,
+	)
 	ui_renderer_create(
 		&engine.ui_renderer,
 		engine.device,
@@ -137,13 +155,14 @@ engine_destroy :: proc(engine: ^Engine) {
 	bloom_renderer_destroy(&engine.bloom_renderer)
 	sprite_renderer_destroy(&engine.sprite_renderer)
 	gizmos_renderer_destroy(&engine.gizmos_renderer)
+	color_mesh_renderer_destroy(&engine.color_mesh_renderer)
 	ui_renderer_destroy(&engine.ui_renderer)
 	wgpu.QueueRelease(engine.queue)
 	wgpu.DeviceDestroy(engine.device)
 	wgpu.InstanceRelease(engine.instance)
 }
 
-engine_start_frame :: proc(engine: ^Engine) -> bool {
+engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 	if engine.should_close {
 		return false
 	}
@@ -155,6 +174,11 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 	engine.total_time_f64 = time
 	engine.total_secs = f32(engine.total_time_f64)
 	engine.input.total_secs = engine.total_secs
+	engine.cursor_2d_hit_pos = cursor_2d_hit_pos(
+		engine.input.cursor_pos,
+		engine.screen_size_f32,
+		&scene.camera,
+	)
 	if glfw.WindowShouldClose(engine.window) || .JustPressed in engine.input.keys[.ESCAPE] {
 		return false
 	}
@@ -167,7 +191,7 @@ engine_start_frame :: proc(engine: ^Engine) -> bool {
 	return true
 }
 
-
+@(private)
 _engine_hot_reload_shaders :: proc(engine: ^Engine) {
 	pipelines := [?]^RenderPipeline {
 		&engine.sprite_renderer.pipeline,
@@ -196,6 +220,7 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 	free_all(context.temp_allocator)
 }
 
+@(private)
 _engine_debug_ui_gizmos :: proc(engine: ^Engine) {
 	cache := &engine.ui_renderer.cache
 
@@ -226,7 +251,12 @@ _engine_debug_ui_gizmos :: proc(engine: ^Engine) {
 		if cache.active_id == k {
 			color = Color_Red
 		}
-		gizmos_aabb(&engine.gizmos_renderer, Aabb{v.pos, v.pos + v.size}, color, .UI_LAYOUT_SPACE)
+		gizmos_renderer_add_aabb(
+			&engine.gizmos_renderer,
+			Aabb{v.pos, v.pos + v.size},
+			color,
+			.UI_LAYOUT_SPACE,
+		)
 	}
 
 	// for &e in UI_MEMORY_elements() {
@@ -243,7 +273,9 @@ _engine_debug_ui_gizmos :: proc(engine: ^Engine) {
 	// }
 }
 
+
 // Note: assumes that engine.screen_size already contains the new size from the glfw resize callback
+@(private)
 _engine_resize :: proc(engine: ^Engine) {
 	engine.resized = false
 	print("resized:", engine.surface_config)
@@ -261,6 +293,7 @@ _engine_resize :: proc(engine: ^Engine) {
 	bloom_renderer_resize(&engine.bloom_renderer, engine.screen_size)
 }
 
+@(private)
 _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 	screen_size := engine.screen_size_f32
 	camera_size := Vec2 {
@@ -277,10 +310,12 @@ _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 	}
 	uniform_buffer_write(engine.queue, &engine.globals_uniform, &globals)
 	sprite_renderer_prepare(&engine.sprite_renderer, scene.sprites[:])
+	color_mesh_renderer_prepare(&engine.color_mesh_renderer)
 	gizmos_renderer_prepare(&engine.gizmos_renderer, scene.sprites[:])
 	ui_renderer_end_frame_and_prepare_buffers(&engine.ui_renderer, engine.delta_secs)
 }
 
+@(private)
 _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	surface_texture := wgpu.SurfaceGetCurrentTexture(engine.surface)
 	switch surface_texture.status {
@@ -340,12 +375,18 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	)
 	defer wgpu.RenderPassEncoderRelease(hdr_pass)
 	sprite_renderer_render(&engine.sprite_renderer, hdr_pass, engine.globals_uniform.bind_group)
+	color_mesh_renderer_render(
+		&engine.color_mesh_renderer,
+		hdr_pass,
+		engine.globals_uniform.bind_group,
+	)
 	ui_renderer_render(
 		&engine.ui_renderer,
 		hdr_pass,
 		engine.globals_uniform.bind_group,
 		engine.screen_size,
 	)
+
 	gizmos_renderer_render(&engine.gizmos_renderer, hdr_pass, engine.globals_uniform.bind_group)
 	wgpu.RenderPassEncoderEnd(hdr_pass)
 
@@ -383,6 +424,7 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 
 }
 
+@(private)
 _init_glfw_window :: proc(engine: ^Engine) {
 	glfw.Init()
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
@@ -441,6 +483,7 @@ _init_glfw_window :: proc(engine: ^Engine) {
 	glfw.SetMouseButtonCallback(engine.window, mouse_button_callback)
 }
 
+@(private)
 _init_wgpu :: proc(engine: ^Engine) {
 	instance_extras := wgpu.InstanceExtras {
 		chain = {next = nil, sType = wgpu.SType.InstanceExtras},
