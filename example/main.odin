@@ -119,7 +119,8 @@ main :: proc() {
 			player_pos += move * 20 * d.ENGINE.delta_secs
 		}
 
-
+		// poly := [?]d.Vec2{{-5, -5}, {-5, 0}, {0, 0}, {-5, -5}, {0, 0}, {0, -5}}
+		// d.draw_color_mesh(poly[:])
 		snake_update_body(&snake, d.ENGINE.cursor_2d_hit_pos)
 		snake_draw(&snake)
 		d.ENGINE.settings.clear_color = background_color
@@ -134,9 +135,9 @@ Snake :: struct {
 	vertices: [dynamic]d.ColorMeshVertex,
 	points:   [dynamic]Vec2,
 }
-SNAKE_PTS :: 30
-SNAKE_PT_DIST :: 0.4
-SNAKE_LERP_SPEED :: 50
+SNAKE_PTS :: 50
+SNAKE_PT_DIST :: 0.16
+SNAKE_LERP_SPEED :: 100
 snake_create :: proc(head_pos: Vec2) -> Snake {
 	snake: Snake
 	next_pt := head_pos
@@ -163,6 +164,9 @@ snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 	}
 
 	color := d.Color{0, 0, 2.0, 1.0} + 1
+	if color.a > 1 {
+		color.a = 1 // learned: when alpha > 1 in two regions overlapping -> alpha blending makes alpha be 0 instead. (happ)
+	}
 	clear(&snake.vertices)
 	clear(&snake.indices)
 	for i in 0 ..< SNAKE_PTS {
@@ -234,5 +238,14 @@ snake_draw :: proc(snake: ^Snake) {
 	// 		},
 	// 	)
 	// }
+	// d.draw_color_mesh_indexed(snake.vertices[:], snake.indices[:])
+
+
+	// new_vertices := make([dynamic]d.ColorMeshVertex)
+	// defer {delete(new_vertices)}
+	// for i in snake.indices {
+	// 	append(&new_vertices, snake.vertices[i])
+	// }
+	// d.draw_color_mesh(new_vertices[:])
 	d.draw_color_mesh_indexed(snake.vertices[:], snake.indices[:])
 }

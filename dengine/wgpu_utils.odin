@@ -292,7 +292,7 @@ render_pipeline_create :: proc(
 				blend     = blend, // todo! alpha blending
 			},
 		},
-		primitive = {topology = config.topology},
+		primitive = wgpu.PrimitiveState{topology = config.topology, cullMode = .None},
 		multisample = {count = 1, mask = 0xFFFFFFFF},
 	}
 	pipeline_handle := wgpu.DeviceCreateRenderPipeline(device, &pipeline_descriptor)

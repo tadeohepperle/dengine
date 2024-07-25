@@ -174,6 +174,7 @@ slider :: proc {
 	slider_int,
 }
 
+// todo! int values are not correctly displayed (shown as floats as well)
 slider_int :: proc(value: ^int, min: int = 0, max: int = 1, id: UI_ID = 0) {
 	value_f32 := f32(value^)
 	slider_f32(&value_f32, f32(min), f32(max))
@@ -199,17 +200,24 @@ slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UI_ID = 0) {
 	f := (val - min) / (max - min)
 	res := ui_btn_interaction(id)
 
+	scroll := cache.input.scroll
 	if res.just_pressed {
 		cached := cache.cached[id]
 		f = (cache.cursor_pos.x - knob_width / 2 - cached.pos.x) / (cached.size.x - knob_width)
 		val = min + f * (max - min)
 		cache.active_value.slider_value_start_drag = val
-	} else if res.is_pressed {
-		cursor_x := cache.cursor_pos.x
-		cursor_x_start_active := cache.cursor_pos_start_active.x
-		f_shift := (cursor_x - cursor_x_start_active) / (slider_width - knob_width)
-		start_f := (cache.active_value.slider_value_start_drag - min) / (max - min)
-		f = start_f + f_shift
+	} else if res.is_pressed || (scroll != 0 && res.is_hovered) {
+
+		if res.is_pressed {
+			cursor_x := cache.cursor_pos.x
+			cursor_x_start_active := cache.cursor_pos_start_active.x
+			f_shift := (cursor_x - cursor_x_start_active) / (slider_width - knob_width)
+			start_f := (cache.active_value.slider_value_start_drag - min) / (max - min)
+			f = start_f + f_shift
+		} else {
+			f -= scroll * 0.05
+		}
+
 		if f < 0 {
 			f = 0
 		}

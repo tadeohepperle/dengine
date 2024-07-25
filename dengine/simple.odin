@@ -7,8 +7,8 @@ import "core:image"
 ENGINE: Engine
 SCENE: Scene
 
-init :: proc() {
-	engine_create(&ENGINE, DEFAULT_ENGINE_SETTINGS)
+init :: proc(settings: EngineSettings = DEFAULT_ENGINE_SETTINGS) {
+	engine_create(&ENGINE, settings)
 	scene_create(&SCENE)
 }
 

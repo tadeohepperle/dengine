@@ -8,14 +8,17 @@ import "core:strings"
 MAX_CAPTURES_CHARS :: 16
 
 Input :: struct {
-	cursor_pos_f64: [2]f64,
-	cursor_pos:     [2]f32,
-	keys:           #sparse[Key]PressFlags,
-	mouse_buttons:  [MouseButton]PressFlags,
-	chars:          [MAX_CAPTURES_CHARS]rune,
-	chars_len:      int,
-	total_secs:     f32,
-	window:         glfw.WindowHandle,
+	old_cursor_pos_f64, cursor_pos_f64: [2]f64,
+	cursor_pos:                         [2]f32,
+	cursor_delta:                       [2]f32,
+	keys:                               #sparse[Key]PressFlags,
+	mouse_buttons:                      [MouseButton]PressFlags,
+	chars:                              [MAX_CAPTURES_CHARS]rune,
+	chars_len:                          int,
+	total_secs:                         f32,
+	delta_secs:                         f32,
+	scroll:                             f32,
+	window:                             glfw.WindowHandle,
 }
 
 input_set_clipboard :: proc(input: ^Input, str: string) {
@@ -62,6 +65,8 @@ input_receive_glfw_char_event :: proc(input: ^Input, char: rune) {
 
 
 input_end_of_frame :: proc(input: ^Input) {
+	input.scroll = 0
+	input.chars_len = 0
 	for key in Key {
 		state := &input.keys[key]
 		if .Pressed in state {
@@ -77,7 +82,6 @@ input_end_of_frame :: proc(input: ^Input) {
 			btn = {}
 		}
 	}
-	input.chars_len = 0
 }
 
 input_receive_glfw_key_event :: proc(input: ^Input, glfw_key, action: i32) {

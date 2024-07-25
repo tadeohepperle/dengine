@@ -29,6 +29,7 @@ EngineSettings :: struct {
 	clear_color:        Color,
 	bloom_enabled:      bool,
 	bloom_settings:     BloomSettings,
+	shaders_dir_path:   string,
 	default_font_path:  string,
 	default_font_color: Color,
 	default_font_size:  f32,
@@ -42,6 +43,7 @@ DEFAULT_ENGINE_SETTINGS :: EngineSettings {
 	clear_color        = {0.1, 0.1, 0.2, 1.0},
 	bloom_enabled      = false,
 	bloom_settings     = DEFAULT_BLOOM_SETTINGS,
+	shaders_dir_path   = "./shaders",
 	default_font_path  = "assets/marko_one_regular",
 	default_font_color = Color_White,
 	default_font_size  = 24.0,
@@ -80,7 +82,6 @@ Engine :: struct {
 }
 
 cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
-
 	p := (cursor_pos - (screen_size / 2)) * 2.0 / screen_size.y * camera.y_height
 	p.x = -p.x
 	return camera.pos - p
@@ -105,7 +106,7 @@ engine_create :: proc(
 	_init_wgpu(engine)
 
 	hdr_screen_texture = texture_create(device, screen_size, HDR_SCREEN_TEXTURE_SETTINGS)
-	shader_registry = shader_registry_create(device)
+	shader_registry = shader_registry_create(device, engine_settings.shaders_dir_path)
 	uniform_buffer_create(&globals_uniform, device)
 	engine.tonemapping_pipeline.config = tonemapping_pipeline_config(device)
 	render_pipeline_create_panic(&tonemapping_pipeline, device, &shader_registry)
@@ -183,6 +184,7 @@ engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 	engine.total_time_f64 = time
 	engine.total_secs = f32(engine.total_time_f64)
 	engine.input.total_secs = engine.total_secs
+	engine.input.delta_secs = engine.delta_secs
 	engine.cursor_2d_hit_pos = cursor_2d_hit_pos(
 		engine.input.cursor_pos,
 		engine.screen_size_f32,
@@ -491,10 +493,18 @@ _init_glfw_window :: proc(engine: ^Engine) {
 		context = runtime.default_context()
 		engine: ^Engine = auto_cast glfw.GetWindowUserPointer(window)
 		engine.input.cursor_pos_f64 = {x_pos, y_pos}
-		engine.input.cursor_pos = {f32(x_pos), f32(y_pos)}
+		new_cursor_pos := Vec2{f32(x_pos), f32(y_pos)}
+		engine.input.cursor_delta += new_cursor_pos - engine.input.cursor_pos
+		engine.input.cursor_pos = new_cursor_pos
 	}
 	glfw.SetCursorPosCallback(engine.window, cursor_pos_callback)
 
+	scroll_callback :: proc "c" (window: glfw.WindowHandle, x_offset, y_offset: f64) {
+		context = runtime.default_context()
+		engine: ^Engine = auto_cast glfw.GetWindowUserPointer(window)
+		engine.input.scroll = f32(y_offset)
+	}
+	glfw.SetScrollCallback(engine.window, scroll_callback)
 
 	mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, _mods: i32) {
 		context = runtime.default_context()

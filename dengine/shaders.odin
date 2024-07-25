@@ -50,8 +50,11 @@ StringAndCString :: struct {
 // 	delete(shader.composited.imports)
 // }
 
-shader_registry_create :: proc(device: wgpu.Device) -> ShaderRegistry {
-	return ShaderRegistry{device = device, shaders_dir_path = "./shaders"}
+shader_registry_create :: proc(
+	device: wgpu.Device,
+	shaders_dir_path: string = "./shaders",
+) -> ShaderRegistry {
+	return ShaderRegistry{device = device, shaders_dir_path = shaders_dir_path}
 }
 
 shader_registry_get :: proc(reg: ^ShaderRegistry, shader_name: string) -> wgpu.ShaderModule {
