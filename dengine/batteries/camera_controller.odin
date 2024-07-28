@@ -27,8 +27,8 @@ CameraController :: struct {
 }
 
 camera_controller_create :: proc(
-	settings: CameraSettings = DEFAULT_CAMERA_CONTROLLER_SETTINGS,
 	camera: d.Camera = {y_height = 10},
+	settings: CameraSettings = DEFAULT_CAMERA_CONTROLLER_SETTINGS,
 ) -> CameraController {
 	return CameraController{settings = settings, target = camera, current = camera}
 }

@@ -20,6 +20,21 @@ ColliderShape :: union {
 	RotatedRect,
 }
 
+collider_roughly_in_aabb :: proc "contextless" (collider: ^ColliderShape, aabb: Aabb) -> bool {
+	switch c in collider {
+	case Circle:
+		return aabb_contains(aabb, c.pos)
+	case Aabb:
+		return aabb_intersects(aabb, c)
+	case Triangle:
+		center := (c.a + c.b + c.c) / 3
+		return aabb_contains(aabb, center)
+	case RotatedRect:
+		return aabb_contains(aabb, c.center)
+	}
+	return false
+}
+
 collider_overlaps_point :: proc "contextless" (collider: ^ColliderShape, pt: Vec2) -> bool {
 	switch c in collider {
 	case Circle:
@@ -94,5 +109,5 @@ point_in_triangle :: #force_inline proc "contextless" (
 	has_neg := (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0)
 	has_pos := (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0)
 
-	return has_neg || has_pos
+	return !(has_neg && has_pos)
 }

@@ -63,7 +63,6 @@ update_interaction_state :: proc(
 	}
 
 	if hovered_id != {} && .JustPressed in press {
-		print("Lets go!", hovered_id)
 		just_pressed_id = hovered_id
 		pressed_id = hovered_id
 	}

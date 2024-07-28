@@ -202,6 +202,7 @@ engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 	for &e, i in scene.last_frame_colliders {
 		if e.z > highest_z_collider_hit {
 			if collider_overlaps_point(&e.shape, engine.hit_pos) {
+				highest_z_collider_hit = e.z
 				engine.hit_collider = e.metadata
 				engine.hit_collider_idx = i
 			}

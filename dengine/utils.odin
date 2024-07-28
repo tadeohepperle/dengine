@@ -10,6 +10,30 @@ Aabb :: struct {
 	max: Vec2,
 }
 
+// ensures that both x and y of the max are >= than the min
+aabb_standard_form :: proc "contextless" (aabb: Aabb) -> Aabb {
+	r := aabb
+	if r.max.x < r.min.x {
+		r.min.x, r.max.x = r.max.x, r.min.x
+	}
+	if r.max.y < r.min.y {
+		r.min.y, r.max.y = r.max.y, r.min.y
+	}
+	return r
+}
+
+aabb_contains :: proc "contextless" (aabb: Aabb, pt: Vec2) -> bool {
+	return pt.x >= aabb.min.x && pt.y >= aabb.min.y && pt.x <= aabb.max.x && pt.y <= aabb.max.y
+}
+
+aabb_intersects :: proc "contextless" (a: Aabb, b: Aabb) -> bool {
+	return(
+		min(a.max.x, b.max.x) >= max(a.min.x, b.min.x) &&
+		min(a.max.y, b.max.y) >= max(a.min.y, b.min.y) \
+	)
+}
+
+
 Camera :: struct {
 	pos:      Vec2,
 	y_height: f32,

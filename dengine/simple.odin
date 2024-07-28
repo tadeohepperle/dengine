@@ -13,6 +13,18 @@ init :: proc(settings: EngineSettings = DEFAULT_ENGINE_SETTINGS) {
 	scene_create(&SCENE)
 }
 
+mouse_btn :: proc(btn: MouseButton = .Left) -> PressFlags {
+	return ENGINE.input.mouse_buttons[btn]
+}
+
+just_left_pressed :: proc() -> bool {
+	return .JustPressed in ENGINE.input.mouse_buttons[.Left]
+}
+
+just_left_released :: proc() -> bool {
+	return .JustReleased in ENGINE.input.mouse_buttons[.Left]
+}
+
 deinit :: proc() {
 	scene_destroy(&SCENE)
 	engine_destroy(&ENGINE)
@@ -20,6 +32,18 @@ deinit :: proc() {
 
 key_pressed :: #force_inline proc(key: Key) -> bool {
 	return .Pressed in ENGINE.input.keys[key]
+}
+
+shift_pressed :: #force_inline proc() -> bool {
+	return .Pressed in ENGINE.input.keys[.LEFT_SHIFT]
+}
+
+ctrl_pressed :: #force_inline proc() -> bool {
+	return .Pressed in ENGINE.input.keys[.LEFT_CONTROL]
+}
+
+hit_pos :: #force_inline proc() -> Vec2 {
+	return ENGINE.hit_pos
 }
 
 frame :: proc() -> bool {

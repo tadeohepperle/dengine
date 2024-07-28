@@ -13,6 +13,17 @@ main :: proc() {
 	d.init()
 	defer {d.deinit()}
 
+
+	if true {
+
+		a := Vec2{0, 0}
+		b := Vec2{1, 0}
+		c := Vec2{0, 2}
+		fmt.println(d.point_in_triangle({3.0, 2.0}, a, b, c))
+
+		panic("Hello")
+	}
+
 	fmt.println("sizeL", size_of(d.TerrainVertex))
 
 	terrain_textures_paths := [?]string {
