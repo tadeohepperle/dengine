@@ -51,16 +51,16 @@ THEME: UiTheme = UiTheme {
 }
 
 
-button :: proc(title: string, id: string = "") -> BtnInteraction {
+button :: proc(title: string, id: string = "") -> Interaction {
 	id := ui_id(id) if id != "" else ui_id(title)
-	res := ui_btn_interaction(id)
+	res := ui_interaction(id)
 
 	color: Color = ---
 	border_color: Color = ---
-	if res.is_pressed {
+	if res.pressed {
 		color = THEME.surface_deep
 		border_color = THEME.text
-	} else if res.is_hovered {
+	} else if res.hovered {
 		color = THEME.surface_border
 		border_color = THEME.text
 	} else {
@@ -97,7 +97,7 @@ button :: proc(title: string, id: string = "") -> BtnInteraction {
 
 toggle :: proc(value: ^bool, title: string) {
 	id := u64(uintptr(value))
-	res := ui_btn_interaction(id)
+	res := ui_interaction(id)
 	active := value^
 	if res.just_pressed {
 		active = !active
@@ -126,7 +126,7 @@ toggle :: proc(value: ^bool, title: string) {
 		text_color = THEME.text_secondary
 		pill_color = THEME.text_secondary
 	}
-	if res.is_hovered {
+	if res.hovered {
 		pill_color = highlight(pill_color)
 	}
 	pill_flags: DivFlags = {.AxisX, .WidthPx, .HeightPx}
@@ -175,21 +175,21 @@ slider :: proc {
 }
 
 // todo! int values are not correctly displayed (shown as floats as well)
-slider_int :: proc(value: ^int, min: int = 0, max: int = 1, id: UI_ID = 0) {
+slider_int :: proc(value: ^int, min: int = 0, max: int = 1, id: UiId = 0) {
 	value_f32 := f32(value^)
 	slider_f32(&value_f32, f32(min), f32(max))
 	value^ = int(math.round(value_f32))
 }
 
 // todo! maybe the slider_f32 should be the wrapper instead.
-slider_f64 :: proc(value: ^f64, min: f64 = 0, max: f64 = 1, id: UI_ID = 0) {
+slider_f64 :: proc(value: ^f64, min: f64 = 0, max: f64 = 1, id: UiId = 0) {
 	value_f32 := f32(value^)
 	id := id if id != 0 else u64(uintptr(value))
 	slider_f32(&value_f32, f32(min), f32(max), id = id)
 	value^ = f64(value_f32)
 }
 
-slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UI_ID = 0) {
+slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UiId = 0) {
 	slider_width: f32 = 192
 	knob_width: f32 = 24
 
@@ -198,7 +198,7 @@ slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UI_ID = 0) {
 	val: f32 = value^
 
 	f := (val - min) / (max - min)
-	res := ui_btn_interaction(id)
+	res := ui_interaction(id)
 
 	scroll := cache.input.scroll
 	if res.just_pressed {
@@ -206,11 +206,11 @@ slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UI_ID = 0) {
 		f = (cache.cursor_pos.x - knob_width / 2 - cached.pos.x) / (cached.size.x - knob_width)
 		val = min + f * (max - min)
 		cache.active_value.slider_value_start_drag = val
-	} else if res.is_pressed || (scroll != 0 && res.is_hovered) {
+	} else if res.pressed || (scroll != 0 && res.hovered) {
 
-		if res.is_pressed {
+		if res.pressed {
 			cursor_x := cache.cursor_pos.x
-			cursor_x_start_active := cache.cursor_pos_start_active.x
+			cursor_x_start_active := cache.cursor_pos_start_press.x
 			f_shift := (cursor_x - cursor_x_start_active) / (slider_width - knob_width)
 			start_f := (cache.active_value.slider_value_start_drag - min) / (max - min)
 			f = start_f + f_shift
@@ -247,7 +247,7 @@ slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UI_ID = 0) {
 		},
 		id = id,
 	)
-	knob_border_color: Color = THEME.surface if !res.is_hovered else THEME.surface_border
+	knob_border_color: Color = THEME.surface if !res.hovered else THEME.surface_border
 	div(
 		Div {
 			width = knob_width,
@@ -283,7 +283,7 @@ start_window :: proc(title: string) {
 	id := ui_id(title)
 	cache := UI_MEMORY.cache
 	assert(UI_MEMORY.parent_stack_len == 0)
-	res := ui_btn_interaction(id)
+	res := ui_interaction(id)
 	if res.just_pressed {
 		cache.active_value.window_pos_start_drag = UI_MEMORY.cache.cached[id].pos
 	}
@@ -291,11 +291,11 @@ start_window :: proc(title: string) {
 	window_pos: Vec2 = ---
 	cache_entry, ok := cache.cached[id]
 	if ok {
-		if res.is_pressed {
+		if res.pressed {
 			window_pos =
 				cache.active_value.window_pos_start_drag +
 				cache.cursor_pos -
-				cache.cursor_pos_start_active
+				cache.cursor_pos_start_press
 		} else {
 			window_pos = cache_entry.pos
 		}
@@ -321,7 +321,7 @@ start_window :: proc(title: string) {
 
 	text(
 		Text {
-			color = Color_Gray if res.is_hovered else Color_Black,
+			color = Color_Gray if res.hovered else Color_Black,
 			font_size = 18.0,
 			str = title,
 			shadow = 0.5,
@@ -337,11 +337,11 @@ StringBuilder :: strings.Builder
 edit_old :: proc(value: ^strings.Builder) {
 
 	id := u64(uintptr(value))
-	res := ui_btn_interaction(id)
+	res := ui_interaction(id)
 
 	input := UI_MEMORY.cache.input
 
-	if res.is_focused {
+	if res.focused {
 		for c in input.chars[:input.chars_len] {
 			strings.write_rune(value, c)
 		}
@@ -353,7 +353,7 @@ edit_old :: proc(value: ^strings.Builder) {
 	}
 
 	text_str := strings.to_string(value^)
-	bg_color := color_gray(0.4) if res.is_focused else color_gray(0.2)
+	bg_color := color_gray(0.4) if res.focused else color_gray(0.2)
 	start_div(
 		Div {
 			width = 400,
@@ -389,7 +389,7 @@ edit_old :: proc(value: ^strings.Builder) {
 }
 
 
-check_box :: proc(value: ^bool, title: string, id: UI_ID = 0) {
+check_box :: proc(value: ^bool, title: string, id: UiId = 0) {
 	id := id if id != 0 else u64(uintptr(value))
 	val := value^
 	res := _check_box_inner(val, title, id)
@@ -399,14 +399,14 @@ check_box :: proc(value: ^bool, title: string, id: UI_ID = 0) {
 }
 
 @(private)
-_check_box_inner :: #force_inline proc(checked: bool, label: string, id: UI_ID) -> BtnInteraction {
-	res := ui_btn_interaction(id)
+_check_box_inner :: #force_inline proc(checked: bool, label: string, id: UiId) -> Interaction {
+	res := ui_interaction(id)
 	text_color: Color = ---
 	knob_inner_color: Color = ---
-	if checked || res.is_pressed {
+	if checked || res.pressed {
 		text_color = THEME.text
 		knob_inner_color = THEME.surface_deep
-	} else if res.is_hovered {
+	} else if res.hovered {
 		text_color = THEME.highlight
 		knob_inner_color = THEME.text_secondary
 	} else {
@@ -472,31 +472,31 @@ enum_radio :: proc(value: ^$T, title: string = "") where intrinsics.type_is_enum
 
 
 // TODO: color picker last_hue caching is not working, if sat or val hit 0, the hue is also set to 0 right now.
-color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
+color_picker :: proc(value: ^Color, title: string = "", id: UiId = 0) {
 	// use some local variables to remember the last valid values, because:
 	// - in HSV if value = 0 then saturation and hue not reconstructable
 	// - if saturation = 0 then hue not reconstructable
 	@(thread_local)
-	g_id: UI_ID
+	g_id: UiId
 	@(thread_local)
 	g_hsv: Hsv
 
-	id: UI_ID = u64(uintptr(value)) if id == 0 else id
+	id: UiId = u64(uintptr(value)) if id == 0 else id
 	dialog_id := derived_id(id)
 	square_id := derived_id(dialog_id)
 	hue_slider_id := derived_id(square_id)
 	text_edit_id := derived_id(hue_slider_id)
 
 	cache := UI_MEMORY.cache
-	color_picker_ids := [?]UI_ID{id, dialog_id, square_id, hue_slider_id, text_edit_id}
-	show_dialog := cache_any_active_or_focused(cache, color_picker_ids[:])
-	res_knob := ui_btn_interaction(id, manually_unfocus = false)
+	color_picker_ids := [?]UiId{id, dialog_id, square_id, hue_slider_id, text_edit_id}
+	show_dialog := cache_any_pressed_or_focused(cache, color_picker_ids[:])
+	res_knob := ui_interaction(id)
 
 
 	if show_dialog {
-		res_dialog := ui_btn_interaction(dialog_id, manually_unfocus = false)
-		res_square := ui_btn_interaction(square_id, manually_unfocus = false)
-		res_hue_slider := ui_btn_interaction(hue_slider_id, manually_unfocus = false)
+		res_dialog := ui_interaction(dialog_id)
+		res_square := ui_interaction(square_id)
+		res_hue_slider := ui_interaction(hue_slider_id)
 		if id != g_id {
 			g_id = id
 			color_rgb := color_to_rgb(value^)
@@ -505,7 +505,7 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 
 		cached_square, ok := cache.cached[square_id]
 		if ok {
-			if res_square.is_pressed {
+			if res_square.pressed {
 				unit_pos_in_square: Vec2 =
 					(cache.cursor_pos - cached_square.pos) / cached_square.size
 				unit_pos_in_square.x = clamp(unit_pos_in_square.x, 0, 1)
@@ -517,7 +517,7 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 
 		cached_hue_slider, h_ok := cache.cached[hue_slider_id]
 		if h_ok {
-			if res_hue_slider.is_pressed {
+			if res_hue_slider.pressed {
 				fract_in_slider: f32 =
 					(cache.cursor_pos.x - cached_square.pos.x) / cached_square.size.x
 				fract_in_slider = clamp(fract_in_slider, 0, 1)
@@ -540,7 +540,7 @@ color_picker :: proc(value: ^Color, title: string = "", id: UI_ID = 0) {
 		id = id,
 	)
 	border_color: Color = ---
-	if res_knob.is_hovered {
+	if res_knob.hovered {
 		border_color = THEME.text
 	} else {
 		border_color = THEME.surface_border
@@ -677,7 +677,7 @@ ColorGradientRect :: struct {
 	colors:     []Color, // the colors should be in here row-wise, e.g. first row [a,b,c] then second row [d,e,f], ...
 }
 
-color_gradient_rect :: proc(rect: ColorGradientRect, id: UI_ID = 0) {
+color_gradient_rect :: proc(rect: ColorGradientRect, id: UiId = 0) {
 
 	// Big problem right now: the verts are always thinking they are sitting on the edge and thus getting
 	// sdfs of 0.0 whihc amount to 0.5 when smoothed. Makes color grey instead of white.
@@ -750,7 +750,7 @@ color_gradient_rect :: proc(rect: ColorGradientRect, id: UI_ID = 0) {
 
 text_edit :: proc(
 	value: ^StringBuilder,
-	id: UI_ID = 0,
+	id: UiId = 0,
 	width_px: f32 = 240,
 	max_characters: int = 10000,
 	font_size: f32 = 0,
@@ -759,7 +759,7 @@ text_edit :: proc(
 	line_break: LineBreak = .OnCharacter,
 ) {
 	@(thread_local)
-	g_id: UI_ID = 0
+	g_id: UiId = 0
 	@(thread_local)
 	g_state_initialized: bool
 	@(thread_local)
@@ -769,12 +769,12 @@ text_edit :: proc(
 
 	id := id if id != 0 else u64(uintptr(value))
 	text_id := derived_id(id)
-	res := ui_btn_interaction(id)
+	res := ui_interaction(id)
 
 
 	cache := UI_MEMORY.cache
 	input := UI_MEMORY.cache.input
-	if res.is_focused {
+	if res.focused {
 		if id != g_id {
 			g_id = id
 			if !g_state_initialized {
@@ -864,7 +864,7 @@ text_edit :: proc(
 	str := strings.to_string(value^)
 
 
-	border_color: Color = THEME.surface_border if res.is_focused else THEME.surface
+	border_color: Color = THEME.surface_border if res.focused else THEME.surface
 	bg_color: Color = THEME.surface_deep
 
 	caret_opacity: f32 = 1.0 if math.sin(input.total_secs * 8.0) > 0.0 else 0.0
@@ -872,7 +872,7 @@ text_edit :: proc(
 		text_id         = text_id,
 		just_pressed    = res.just_pressed,
 		just_released   = res.just_released,
-		is_pressed      = res.is_pressed,
+		pressed         = res.pressed,
 		caret_width     = 4,
 		caret_color     = {THEME.text.r, THEME.text.g, THEME.text.b, caret_opacity},
 		selection_color = THEME.surface,
@@ -890,10 +890,10 @@ text_edit :: proc(
 		},
 		id = id,
 	)
-	if res.is_focused {
+	if res.focused {
 		custom_ui_element(markers_data, set_markers_size, add_markers_elements)
 	}
-	if !res.is_focused && len(str) == 0 {
+	if !res.focused && len(str) == 0 {
 		text(
 			Text {
 				str = placeholder,
@@ -926,8 +926,8 @@ text_edit :: proc(
 	// the job of this markers element is to read the TextEditCached from local 
 	// markers = caret and selection rectangles
 	MarkersData :: struct {
-		text_id:         UI_ID,
-		is_pressed:      bool,
+		text_id:         UiId,
+		pressed:         bool,
 		just_pressed:    bool,
 		just_released:   bool,
 		shift_pressed:   bool,
@@ -998,7 +998,7 @@ text_edit :: proc(
 				g_state.selection = {current_byte_idx, current_byte_idx}
 			}
 		}
-		if data.is_pressed {
+		if data.pressed {
 			g_state.selection[0] = current_byte_idx
 		}
 
@@ -1052,7 +1052,7 @@ text_edit :: proc(
 		}
 
 		// draw the cursor:
-		should_draw_caret := !(data.is_pressed && left_idx != right_idx) // dont draw while selecting area.
+		should_draw_caret := !(data.pressed && left_idx != right_idx) // dont draw while selecting area.
 		if should_draw_caret {
 			caret_byte_idx := g_state.selection[0]
 

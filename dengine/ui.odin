@@ -11,78 +11,87 @@ import wgpu "vendor:wgpu"
 
 SCREEN_REFERENCE_SIZE :: [2]u32{1920, 1080}
 
-NO_ID: UI_ID = 0
-UI_ID :: u64
+NO_ID: UiId = 0
+UiId :: u64
 
-ui_id :: proc(str: string) -> UI_ID {
+ui_id :: proc(str: string) -> UiId {
 	return hash.crc64_xz(transmute([]byte)str)
 }
 
 
-derived_id :: proc(id: UI_ID) -> UI_ID {
+derived_id :: proc(id: UiId) -> UiId {
 	bytes := transmute([8]u8)id
 	return hash.crc64_xz(bytes[:])
 }
 
-combined_id :: proc(a: UI_ID, b: UI_ID) -> UI_ID {
-	bytes := transmute([16]u8)[2]UI_ID{a, b}
+combined_id :: proc(a: UiId, b: UiId) -> UiId {
+	bytes := transmute([16]u8)[2]UiId{a, b}
 	return hash.crc64_xz(bytes[:])
 }
 
-BtnInteraction :: struct {
+InteractionState :: struct($ID: typeid) {
+	hovered_id:        ID,
+	pressed_id:        ID,
+	focused_id:        ID,
+	just_pressed_id:   ID,
+	just_released_id:  ID,
+	just_unfocused_id: ID,
+}
+
+update_interaction_state :: proc(
+	using state: ^InteractionState($T),
+	new_hovered_id: T,
+	press: PressFlags,
+) {
+	// todo! just_hovered, just_unhovered...
+	hovered_id = new_hovered_id
+	state.just_pressed_id = {}
+	state.just_released_id = {}
+	state.just_unfocused_id = {}
+
+	if pressed_id != {} && .JustReleased in press {
+		if hovered_id == pressed_id {
+			focused_id = pressed_id
+			just_released_id = pressed_id
+		}
+		pressed_id = {}
+	}
+
+	if focused_id != {} && .JustPressed in press && hovered_id != focused_id {
+		just_unfocused_id = focused_id
+		focused_id = {}
+	}
+
+	if hovered_id != {} && .JustPressed in press {
+		print("Lets go!", hovered_id)
+		just_pressed_id = hovered_id
+		pressed_id = hovered_id
+	}
+}
+
+Interaction :: struct {
+	hovered:        bool,
+	pressed:        bool,
+	focused:        bool,
 	just_pressed:   bool,
 	just_released:  bool,
 	just_unfocused: bool,
-	is_hovered:     bool,
-	is_pressed:     bool,
-	is_focused:     bool,
 }
 
-ui_btn_interaction :: proc(
-	id: UI_ID,
-	cache: ^UiCache = UI_MEMORY.cache,
-	manually_unfocus: bool = false,
-) -> (
-	res: BtnInteraction,
-) {
-	cache := UI_MEMORY.cache
-	cached, ok := cache.cached[id]
-	if !ok {
-		return BtnInteraction{}
+
+interaction :: proc(id: $T, state: ^InteractionState(T)) -> Interaction {
+	return Interaction {
+		hovered = state.hovered_id == id,
+		pressed = state.pressed_id == id,
+		focused = state.focused_id == id,
+		just_pressed = state.just_pressed_id == id,
+		just_released = state.just_released_id == id,
+		just_unfocused = state.just_unfocused_id == id,
 	}
-	press := cache.input.mouse_buttons[.Left]
-	res.is_hovered = cache.hovered_id == id
+}
 
-	if cache.active_id == id {
-		res.is_pressed = true
-		if .JustReleased in press {
-			if res.is_hovered {
-				res.just_released = true
-			}
-			res.is_pressed = false
-			cache.focused_id = id
-			cache.active_id = 0
-		}
-	}
-
-
-	if cache.focused_id == id {
-		if .JustPressed in press && !res.is_hovered && !manually_unfocus {
-			cache.focused_id = 0
-			res.just_unfocused = true
-		} else {
-			res.is_focused = true
-		}
-	}
-
-	if res.is_hovered && .JustPressed in press {
-		res.is_pressed = true
-		res.just_pressed = true
-		cache.active_id = id
-		cache.cursor_pos_start_active = cache.cursor_pos
-	}
-
-	return res
+ui_interaction :: proc(id: UiId, cache: ^UiCache = UI_MEMORY.cache) -> Interaction {
+	return interaction(id, &cache.state)
 }
 
 ActiveValue :: struct #raw_union {
@@ -91,31 +100,29 @@ ActiveValue :: struct #raw_union {
 }
 
 UiCache :: struct {
-	cached:                  map[UI_ID]CachedElement,
-	hovered_id:              UI_ID, // determined by cache at start of frame.
-	active_id:               UI_ID,
-	focused_id:              UI_ID,
-	cursor_pos_start_active: Vec2,
-	active_value:            ActiveValue,
-	input:                   ^Input,
-	cursor_pos:              Vec2, // (scaled to reference cursor pos)
-	layout_extent:           Vec2,
+	cached:                 map[UiId]CachedElement,
+	state:                  InteractionState(UiId),
+	cursor_pos_start_press: Vec2,
+	active_value:           ActiveValue,
+	input:                  ^Input,
+	cursor_pos:             Vec2, // (scaled to reference cursor pos)
+	layout_extent:          Vec2,
 }
 
-cache_any_active_or_focused :: proc(cache: ^UiCache, ids: []UI_ID) -> bool {
+cache_any_pressed_or_focused :: proc(cache: ^UiCache, ids: []UiId) -> bool {
 	for id in ids {
-		if cache.active_id == id || cache.focused_id == id {
+		if cache.state.pressed_id == id || cache.state.focused_id == id {
 			return true
 		}
 	}
 	return false
 }
 
-ZIndex :: u32
+UiZIndex :: u32
 CachedElement :: struct {
 	pos:                  Vec2,
 	size:                 Vec2,
-	z:                    ZIndex,
+	z:                    UiZIndex,
 	i:                    int,
 	generation:           int,
 	pointer_pass_through: bool,
@@ -219,7 +226,7 @@ UiMemory :: struct {
 	default_font_color:      Color,
 	default_font_size:       f32,
 	cache:                   ^UiCache,
-	text_ids_to_tmp_layouts: map[UI_ID]^TextLayoutCtx, // (a little hacky), save the text layouts during the set_size step here, such that other custom elements can lookup a certain text_id in the set_position step and draw geometry based on the layouted lines.
+	text_ids_to_tmp_layouts: map[UiId]^TextLayoutCtx, // (a little hacky), save the text layouts during the set_size step here, such that other custom elements can lookup a certain text_id in the set_position step and draw geometry based on the layouted lines.
 }
 
 UI_MEMORY_elements :: proc() -> []UiElement {
@@ -234,8 +241,8 @@ Parent :: struct {
 UiElement :: struct {
 	pos:     Vec2, // computed
 	size:    Vec2, // computed
-	z:       ZIndex, // computed: parent.z + this.z_bias
-	id:      UI_ID,
+	z:       UiZIndex, // computed: parent.z + this.z_bias
+	id:      UiId,
 	variant: UiElementVariant,
 }
 
@@ -286,7 +293,7 @@ Div :: struct {
 	color:             Color,
 	gap:               f32, // gap between children
 	flags:             DivFlags,
-	z_bias:            ZIndex,
+	z_bias:            UiZIndex,
 	texture:           TextureTile,
 	border_radius:     BorderRadius,
 	border_width:      BorderWidth,
@@ -365,8 +372,8 @@ ui_start_frame :: proc(cache: ^UiCache) {
 	clear_UI_MEMORY()
 	UI_MEMORY.cache = cache
 	// figure out if any ui element with an id is hovered. If many, select the one with highest z value
-	cache.hovered_id = 0
-	highest_z := min(ZIndex)
+	hovered_id: UiId = 0
+	highest_z := min(UiZIndex)
 	highest_z_i := min(int)
 	for id, cached in cache.cached {
 		if cached.pointer_pass_through {
@@ -381,11 +388,20 @@ ui_start_frame :: proc(cache: ^UiCache) {
 			if cursor_in_bounds {
 				highest_z = cached.z
 				highest_z_i = cached.i
-				cache.hovered_id = id
+				hovered_id = id
 			}
 
 		}
 	}
+
+	// determine the rest of ids, i.e. 
+	update_interaction_state(&cache.state, hovered_id, cache.input.mouse_buttons[.Left])
+
+	if cache.state.just_pressed_id != 0 {
+		// print("just_pressed_id", cache.state.just_pressed_id)
+		cache.cursor_pos_start_press = cache.cursor_pos
+	}
+
 }
 
 clear_UI_MEMORY :: proc() {
@@ -414,7 +430,7 @@ update_ui_cache :: proc(cache: ^UiCache, delta_secs: f32) {
 	@(thread_local)
 	generation: int
 	@(thread_local)
-	remove_queue: [dynamic]UI_ID
+	remove_queue: [dynamic]UiId
 
 	clear(&remove_queue)
 	generation += 1
@@ -518,7 +534,7 @@ custom_ui_element :: proc(
 		primitives: ^Primitives,
 		pre_batches: ^[dynamic]PreBatch,
 	),
-	id: UI_ID = 0,
+	id: UiId = 0,
 ) where size_of(T) <= size_of(CustomUiElementStorage) {
 	_pre_add_ui_element()
 	custom_element := CustomUiElement {
@@ -537,7 +553,7 @@ custom_ui_element :: proc(
 }
 
 // only used for divs without children, otherwise use `start_div` and `end_div`
-div :: proc(div: Div, id: UI_ID = 0) {
+div :: proc(div: Div, id: UiId = 0) {
 	_pre_add_ui_element()
 	UI_MEMORY.elements[UI_MEMORY.elements_len] = UiElement {
 		variant = DivWithComputed{div = div},
@@ -547,7 +563,7 @@ div :: proc(div: Div, id: UI_ID = 0) {
 }
 
 // when called, make sure to call end_div later!
-start_div :: proc(div: Div, id: UI_ID = 0) {
+start_div :: proc(div: Div, id: UiId = 0) {
 	_pre_add_ui_element()
 	idx := UI_MEMORY.elements_len
 	UI_MEMORY.elements[idx] = UiElement {
@@ -576,7 +592,7 @@ end_div :: proc() {
 	}
 }
 
-text_from_struct :: proc(text: Text, id: UI_ID = 0) {
+text_from_struct :: proc(text: Text, id: UiId = 0) {
 	text := text
 	if text.font == nil {
 		if default_font_is_not_set() {
@@ -604,7 +620,7 @@ text :: proc {
 	text_from_struct,
 }
 
-text_from_string :: proc(text: string, id: UI_ID = 0) {
+text_from_string :: proc(text: string, id: UiId = 0) {
 
 	if default_font_is_not_set() {
 		panic(
@@ -636,7 +652,7 @@ default_font_is_not_set :: #force_inline proc() -> bool {
 layout :: proc(max_size: Vec2) {
 	initial_pos := Vec2{0, 0}
 	i: int = 0
-	z: ZIndex = 0
+	z: UiZIndex = 0
 	for i < UI_MEMORY.elements_len {
 		element := &UI_MEMORY.elements[i]
 		skipped := set_size(i, element, max_size, z)
@@ -645,7 +661,15 @@ layout :: proc(max_size: Vec2) {
 	}
 }
 
-set_size :: proc(i: int, element: ^UiElement, max_size: Vec2, parent_z: ZIndex) -> (skipped: int) {
+@(private)
+set_size :: proc(
+	i: int,
+	element: ^UiElement,
+	max_size: Vec2,
+	parent_z: UiZIndex,
+) -> (
+	skipped: int,
+) {
 	element.z = parent_z
 	switch &var in element.variant {
 	case DivWithComputed:
@@ -664,6 +688,7 @@ set_size :: proc(i: int, element: ^UiElement, max_size: Vec2, parent_z: ZIndex) 
 	return
 }
 
+@(private)
 set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
 	switch &var in element.variant {
 	case DivWithComputed:
@@ -678,6 +703,7 @@ set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
 	return
 }
 
+@(private)
 set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) -> (text_size: Vec2) {
 	// if text.str == "" {return Vec2{}}
 	ctx := tmp_text_layout_ctx(max_size, 0.0, text.align)
@@ -687,11 +713,12 @@ set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) -> (text_size
 	return
 }
 
+@(private)
 set_size_for_div :: proc(
 	i: int,
 	div: ^DivWithComputed,
 	max_size: Vec2,
-	z_of_div: ZIndex,
+	z_of_div: UiZIndex,
 ) -> (
 	div_size: Vec2,
 	skipped: int,
@@ -752,6 +779,7 @@ set_size_for_div :: proc(
 	return
 }
 
+@(private)
 absolute_positioning :: proc(element: ^UiElement) -> bool {
 	#partial switch &var in element.variant {
 	case DivWithComputed:
@@ -762,11 +790,12 @@ absolute_positioning :: proc(element: ^UiElement) -> bool {
 	return false
 }
 
+@(private)
 set_child_sizes_for_div :: proc(
 	i: int,
 	div: ^DivWithComputed,
 	max_size: Vec2,
-	z_of_div: ZIndex,
+	z_of_div: UiZIndex,
 ) -> (
 	skipped: int,
 ) {
@@ -820,7 +849,7 @@ layout_element_in_text_ctx :: proc(
 	ctx: ^TextLayoutCtx,
 	i: int,
 	element: ^UiElement,
-	parent_z: ZIndex,
+	parent_z: UiZIndex,
 ) -> (
 	skipped: int,
 ) {
@@ -927,7 +956,7 @@ layout_div_in_text_ctx :: proc(
 	ctx: ^TextLayoutCtx,
 	i: int,
 	div: ^DivWithComputed,
-	z_of_div: ZIndex,
+	z_of_div: UiZIndex,
 ) -> (
 	div_size: Vec2,
 	div_pos: Vec2,
@@ -1306,7 +1335,7 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 	pre_batches := make([dynamic]PreBatch, allocator = context.temp_allocator)
 
 	ZRange :: struct {
-		z:         ZIndex,
+		z:         UiZIndex,
 		start_idx: int,
 		end_idx:   int,
 	}

@@ -1,6 +1,7 @@
 package dengine
 
 import "core:image"
+import "core:math"
 // This module contains some global state and exposes functions making it easy to interact with it.
 // Mostly wrappers around functions targeting engine and scene.
 
@@ -16,7 +17,6 @@ deinit :: proc() {
 	scene_destroy(&SCENE)
 	engine_destroy(&ENGINE)
 }
-
 
 key_pressed :: #force_inline proc(key: Key) -> bool {
 	return .Pressed in ENGINE.input.keys[key]
@@ -104,6 +104,23 @@ gizmos_line :: proc(
 	gizmos_renderer_add_line(&ENGINE.gizmos_renderer, from, to, color, mode)
 }
 
+gizmos_circle :: proc(
+	center: Vec2,
+	radius: f32,
+	color: Color = Color_Red,
+	segments: int = 12,
+	draw_inner_lines: bool = false,
+) {
+	gizmos_renderer_add_circle(
+		&ENGINE.gizmos_renderer,
+		center,
+		radius,
+		color,
+		segments,
+		draw_inner_lines,
+	)
+}
+
 draw_color_mesh :: proc {
 	draw_color_mesh_vertices_single_color,
 	draw_color_mesh_vertices,
@@ -125,4 +142,32 @@ draw_color_mesh_indexed_single_color :: proc(
 	color := Color_Red,
 ) {
 	color_mesh_add_indexed_single_color(&ENGINE.color_mesh_renderer, positions, indices, color)
+}
+
+circle_collider :: proc(pos: Vec2, radius: f32, metadata: ColliderMetadata, z: int = 0) {
+	append(
+		&SCENE.colliders,
+		Collider{shape = Circle{pos = pos, radius = radius}, metadata = metadata, z = z},
+	)
+}
+
+aabb_collider :: proc(aabb: Aabb, metadata: ColliderMetadata, z: int = 0) {
+	append(&SCENE.colliders, Collider{shape = aabb, metadata = metadata, z = z})
+}
+
+triangle_collider :: proc(a: Vec2, b: Vec2, c: Vec2, metadata: ColliderMetadata, z: int = 0) {
+	append(&SCENE.colliders, Collider{shape = Triangle{a, b, c}, metadata = metadata, z = z})
+}
+
+rect_collider :: proc(
+	center: Vec2,
+	size: Vec2,
+	rotation: f32,
+	metadata: ColliderMetadata,
+	z: int = 0,
+) {
+	append(
+		&SCENE.colliders,
+		Collider{shape = rotated_rect(center, size, rotation), metadata = metadata, z = z},
+	)
 }

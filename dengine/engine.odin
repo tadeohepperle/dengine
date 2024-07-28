@@ -8,9 +8,6 @@ import glfw "vendor:glfw"
 import wgpu "vendor:wgpu"
 import wgpu_glfw "vendor:wgpu/glfwglue"
 
-HOT_RELOAD_SHADERS :: true
-DEBUG_UI_GIZMOS :: false
-
 SURFACE_FORMAT := wgpu.TextureFormat.BGRA8UnormSrgb
 HDR_FORMAT := wgpu.TextureFormat.RGBA16Float
 HDR_SCREEN_TEXTURE_SETTINGS := TextureSettings {
@@ -23,31 +20,37 @@ HDR_SCREEN_TEXTURE_SETTINGS := TextureSettings {
 }
 
 EngineSettings :: struct {
-	title:              string,
-	initial_size:       [2]u32,
-	tonemapping:        TonemappingMode,
-	clear_color:        Color,
-	bloom_enabled:      bool,
-	bloom_settings:     BloomSettings,
-	shaders_dir_path:   string,
-	default_font_path:  string,
-	default_font_color: Color,
-	default_font_size:  f32,
-	power_preference:   wgpu.PowerPreference,
+	title:                 string,
+	initial_size:          [2]u32,
+	tonemapping:           TonemappingMode,
+	clear_color:           Color,
+	bloom_enabled:         bool,
+	bloom_settings:        BloomSettings,
+	shaders_dir_path:      string,
+	default_font_path:     string,
+	default_font_color:    Color,
+	default_font_size:     f32,
+	power_preference:      wgpu.PowerPreference,
+	hot_reload_shaders:    bool,
+	debug_ui_gizmos:       bool,
+	debug_collider_gizmos: bool,
 }
 
 DEFAULT_ENGINE_SETTINGS :: EngineSettings {
-	title              = "Odin Engine",
-	initial_size       = {800, 600},
-	tonemapping        = .Disabled,
-	clear_color        = {0.1, 0.1, 0.2, 1.0},
-	bloom_enabled      = false,
-	bloom_settings     = DEFAULT_BLOOM_SETTINGS,
-	shaders_dir_path   = "./shaders",
-	default_font_path  = "assets/marko_one_regular",
-	default_font_color = Color_White,
-	default_font_size  = 24.0,
-	power_preference   = wgpu.PowerPreference.LowPower,
+	title                 = "Odin Engine",
+	initial_size          = {800, 600},
+	tonemapping           = .Disabled,
+	clear_color           = {0.1, 0.1, 0.2, 1.0},
+	bloom_enabled         = false,
+	bloom_settings        = DEFAULT_BLOOM_SETTINGS,
+	shaders_dir_path      = "./shaders",
+	default_font_path     = "assets/marko_one_regular",
+	default_font_color    = Color_White,
+	default_font_size     = 24.0,
+	power_preference      = wgpu.PowerPreference.LowPower,
+	hot_reload_shaders    = true,
+	debug_ui_gizmos       = true,
+	debug_collider_gizmos = false,
 }
 
 Engine :: struct {
@@ -78,7 +81,9 @@ Engine :: struct {
 	ui_renderer:          UiRenderer,
 	color_mesh_renderer:  ColorMeshRenderer,
 	terrain_renderer:     TerrainRenderer,
-	cursor_2d_hit_pos:    Vec2,
+	hit_pos:              Vec2,
+	hit_collider:         ColliderMetadata,
+	hit_collider_idx:     int,
 }
 
 cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
@@ -185,16 +190,32 @@ engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 	engine.total_secs = f32(engine.total_time_f64)
 	engine.input.total_secs = engine.total_secs
 	engine.input.delta_secs = engine.delta_secs
-	engine.cursor_2d_hit_pos = cursor_2d_hit_pos(
+	engine.hit_pos = cursor_2d_hit_pos(
 		engine.input.cursor_pos,
 		engine.screen_size_f32,
 		&scene.camera,
 	)
+
+	highest_z_collider_hit: int = min(int)
+
+	engine.hit_collider_idx = -1
+	for &e, i in scene.last_frame_colliders {
+		if e.z > highest_z_collider_hit {
+			if collider_overlaps_point(&e.shape, engine.hit_pos) {
+				engine.hit_collider = e.metadata
+				engine.hit_collider_idx = i
+			}
+		}
+	}
+	if engine.hit_collider_idx == -1 {
+		engine.hit_collider = NO_COLLIDER // no hit, set to default.
+	}
+
 	if glfw.WindowShouldClose(engine.window) || .JustPressed in engine.input.keys[.ESCAPE] {
 		return false
 	}
 
-	when HOT_RELOAD_SHADERS {
+	if engine.settings.hot_reload_shaders {
 		_engine_hot_reload_shaders(engine)
 	}
 
@@ -224,8 +245,11 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 		_engine_resize(engine)
 	}
 	_engine_prepare(engine, scene)
-	if DEBUG_UI_GIZMOS {
+	if engine.settings.debug_ui_gizmos {
 		_engine_debug_ui_gizmos(engine)
+	}
+	if engine.settings.debug_collider_gizmos {
+		_engine_debug_collider_gizmos(engine, scene)
 	}
 	input_end_of_frame(&engine.input)
 	_engine_render(engine, scene)
@@ -233,35 +257,67 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 	free_all(context.temp_allocator)
 }
 
+
+@(private)
+_engine_debug_collider_gizmos :: proc(engine: ^Engine, scene: ^Scene) {
+	add_collider_gizmos :: #force_inline proc(
+		rend: ^GizmosRenderer,
+		shape: ^ColliderShape,
+		color: Color,
+	) {
+		switch c in shape {
+		case Circle:
+			gizmos_renderer_add_circle(rend, c.pos, c.radius, color)
+		case Aabb:
+			gizmos_renderer_add_aabb(rend, c, color, .WORLD_SPACE_2D)
+		case Triangle:
+			gizmos_renderer_add_line(rend, c.a, c.b, color, .WORLD_SPACE_2D)
+			gizmos_renderer_add_line(rend, c.b, c.c, color, .WORLD_SPACE_2D)
+			gizmos_renderer_add_line(rend, c.c, c.a, color, .WORLD_SPACE_2D)
+		case RotatedRect:
+			gizmos_renderer_add_line(rend, c.a, c.b, color, .WORLD_SPACE_2D)
+			gizmos_renderer_add_line(rend, c.b, c.c, color, .WORLD_SPACE_2D)
+			gizmos_renderer_add_line(rend, c.c, c.d, color, .WORLD_SPACE_2D)
+			gizmos_renderer_add_line(rend, c.d, c.a, color, .WORLD_SPACE_2D)
+		}
+	}
+
+
+	for &collider, i in scene.last_frame_colliders {
+		color := Color_Yellow if i == engine.hit_collider_idx else Color_Light_Blue
+		add_collider_gizmos(&engine.gizmos_renderer, &collider.shape, color)
+	}
+}
+
 @(private)
 _engine_debug_ui_gizmos :: proc(engine: ^Engine) {
 	cache := &engine.ui_renderer.cache
+	state := &cache.state
 
 	@(static)
-	last_cache: UiCache
-	if cache.hovered_id != last_cache.hovered_id {
-		print(" hovered: ", last_cache.hovered_id, " => ", cache.hovered_id)
-		last_cache.hovered_id = cache.hovered_id
+	last_state: InteractionState(UiId)
+
+	if state.hovered_id != last_state.hovered_id {
+		print("  hovered_id:", last_state.hovered_id, "->", state.hovered_id)
 	}
-	if cache.active_id != last_cache.active_id {
-		print(" active: ", last_cache.active_id, " => ", cache.active_id)
-		last_cache.active_id = cache.active_id
+	if state.pressed_id != last_state.pressed_id {
+		print("  pressed_id:", last_state.pressed_id, "->", state.pressed_id)
 	}
-	if cache.focused_id != last_cache.focused_id {
-		print("focused: ", last_cache.focused_id, " => ", cache.focused_id)
-		last_cache.focused_id = cache.focused_id
+	if state.focused_id != last_state.focused_id {
+		print("  focused_id:", last_state.focused_id, "->", state.focused_id)
 	}
-	last_cache = cache^
+	last_state = state^
+
 
 	for k, v in cache.cached {
 		color := Color_Light_Blue
-		if cache.hovered_id == k {
+		if state.hovered_id == k {
 			color = Color_Yellow
 		}
-		if cache.focused_id == k {
+		if state.focused_id == k {
 			color = Color_Violet
 		}
-		if cache.active_id == k {
+		if state.pressed_id == k {
 			color = Color_Red
 		}
 		gizmos_renderer_add_aabb(

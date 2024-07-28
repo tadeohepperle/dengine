@@ -28,9 +28,9 @@ main :: proc() {
 
 	terrain_mesh := d.terrain_mesh_create(
 		{
-			d.TerrainVertex{pos = {0, 0}, ty_indices = {0, 1, 2}, ty_weights = {1, 0, 0}},
-			d.TerrainVertex{pos = {5, 7}, ty_indices = {0, 1, 2}, ty_weights = {0, 1, 0}},
-			d.TerrainVertex{pos = {10, 0}, ty_indices = {0, 1, 2}, ty_weights = {0, 0, 1}},
+			d.TerrainVertex{pos = {0, 0}, indices = {0, 1, 2}, weights = {1, 0, 0}},
+			d.TerrainVertex{pos = {5, 7}, indices = {0, 1, 2}, weights = {0, 1, 0}},
+			d.TerrainVertex{pos = {10, 0}, indices = {0, 1, 2}, weights = {0, 0, 1}},
 		},
 		d.ENGINE.device,
 		d.ENGINE.queue,
@@ -121,10 +121,9 @@ main :: proc() {
 
 		// poly := [?]d.Vec2{{-5, -5}, {-5, 0}, {0, 0}, {-5, -5}, {0, 0}, {0, -5}}
 		// d.draw_color_mesh(poly[:])
-		snake_update_body(&snake, d.ENGINE.cursor_2d_hit_pos)
+		snake_update_body(&snake, d.ENGINE.hit_pos)
 		snake_draw(&snake)
 		d.ENGINE.settings.clear_color = background_color
-
 
 	}
 

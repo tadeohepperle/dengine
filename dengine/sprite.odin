@@ -5,33 +5,8 @@ import "core:slice"
 import wgpu "vendor:wgpu"
 
 
-SpriteZ :: enum {
-	Background,
-	DecoArea,
-	PathIndicator,
-	Path,
-	NodeIndicator,
-	Node,
-	Default,
-	BehindCharacter,
-	CharacterIndicator,
-	Character,
-	CharacterUi,
-	ItemOrBagOnMapIndicator,
-	ItemOrBagOnMap,
-	NpcDice,
-	PlayerTakenDice,
-	ItemInBagIndicator,
-	ItemInBag,
-	PlayerOpenDice,
-	DescriptionCard,
-	PossibleAction,
-	BehindVeryTop,
-	VeryTop,
-}
-
 Sprite :: struct {
-	z:        SpriteZ,
+	z:        i32,
 	texture:  TextureTile,
 	pos:      Vec2,
 	size:     Vec2,

@@ -408,11 +408,7 @@ texture_array_from_images :: proc(
 		bytesPerRow  = bytes_per_row,
 		rowsPerImage = size.y,
 	}
-	print(data_layout)
-
 	for img, i in images {
-		print(img.channels)
-		print(uint(len(img.pixels.buf)))
 		image_copy := wgpu.ImageCopyTexture {
 			texture  = texture_array.texture,
 			mipLevel = 0,
@@ -427,7 +423,6 @@ texture_array_from_images :: proc(
 			&data_layout,
 			&wgpu.Extent3D{width = size.x, height = size.y, depthOrArrayLayers = 1},
 		)
-		print("write image success", i)
 	}
 	return
 }

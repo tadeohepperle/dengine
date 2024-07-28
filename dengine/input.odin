@@ -67,6 +67,7 @@ input_receive_glfw_char_event :: proc(input: ^Input, char: rune) {
 input_end_of_frame :: proc(input: ^Input) {
 	input.scroll = 0
 	input.chars_len = 0
+	input.cursor_delta = 0
 	for key in Key {
 		state := &input.keys[key]
 		if .Pressed in state {

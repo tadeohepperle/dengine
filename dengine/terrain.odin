@@ -3,10 +3,44 @@ package dengine
 import wgpu "vendor:wgpu"
 
 TerrainVertex :: struct {
-	pos:        Vec2,
-	ty_indices: UVec3,
-	ty_weights: Vec3,
+	pos:     Vec2, // per vertex
+	indices: UVec3, // per triangle (same for all vertices in each triangle)
+	weights: Vec3, // per vertex
+	direction: Vec3, // per vertex (3 dimensions for seamless interpolation at triangles between 3 hexes)
 }
+
+// Explanation of TerrainVertex.directions:
+// We can assign a 3-dimensional direction to each vertex in the hex grid:
+// now point A can have direction (1,0,0) because pointing into the triangle is x direction.
+// point B would have direction (0,-1,0) because it is pointing in the opposite of y direction.
+//                                                             
+//                 -\------------ B-                              --       
+//               -/  -\         -/  -\                          -/  -\     
+//             -/      -\     -/      -\                      -/      -\   
+//           -/          -  -/          -\                  -/          -\ 
+//          /            /--\             --\            --/            ---
+//        -/           /-    -\         ^    -\        -/    ^        -/   
+//      -/           /-        --\       \     -\    -/     /      --/     
+//    -/           /-             -\      Z      -A/      Y     -/        
+//  -/           /-                 -\           /-           --/          
+// /--         /-                     --\      /-  \       --/             
+//    \-     /-                          -\  /-     \-   -/                
+//      \- --                              -----------\-/                  
+//         |                                |        |                     
+//         |                                |    X   |                     
+//         |                                |    |   |                     
+//         |                                |    V   |                     
+//         |                                |        |                     
+//         |                                |        |                     
+//         |                                |        |                     
+//         -\                             ------------                     
+//           -\                         -/                                 
+//             --\                   --/                                   
+//                -\              --/                                      
+//                  --\         -/                                         
+//                     -\    --/                                           
+//                       ---/                                              
+// 
 
 TerrainMesh :: struct {
 	vertices:      [dynamic]TerrainVertex,
@@ -99,8 +133,9 @@ terrain_pipeline_config :: proc(
 			ty_id = TerrainVertex,
 			attributes = {
 				{format = .Float32x2, offset = offset_of(TerrainVertex, pos)},
-				{format = .Uint32x3, offset = offset_of(TerrainVertex, ty_indices)},
-				{format = .Float32x3, offset = offset_of(TerrainVertex, ty_weights)},
+				{format = .Uint32x3, offset = offset_of(TerrainVertex, indices)},
+				{format = .Float32x3, offset = offset_of(TerrainVertex, weights)},
+				{format = .Float32x3, offset = offset_of(TerrainVertex, direction)},
 			},
 		},
 		instance = {},

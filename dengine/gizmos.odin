@@ -1,5 +1,6 @@
 package dengine
 
+import "core:math"
 import wgpu "vendor:wgpu"
 
 GizmosVertex :: struct {
@@ -83,6 +84,29 @@ gizmos_renderer_render :: proc(
 		wgpu.RenderPassEncoderDraw(render_pass, u32(vertex_buffer.length), 1, 0, 0)
 	}
 }
+
+
+// todo: add .WORLD_SPACE_2D / UI option
+gizmos_renderer_add_circle :: #force_inline proc(
+	rend: ^GizmosRenderer,
+	center: Vec2,
+	radius: f32,
+	color := Color{1, 0, 0, 1},
+	segments: int = 12,
+	draw_inner_lines: bool = false,
+) {
+	last_p: Vec2 = center + Vec2{radius, 0}
+	for i in 1 ..= segments {
+		angle := f32(i) / f32(segments) * math.PI * 2.0
+		p := center + Vec2{math.cos(angle), math.sin(angle)} * radius
+		gizmos_renderer_add_line(rend, last_p, p, color, GizmosMode.WORLD_SPACE_2D)
+		if draw_inner_lines {
+			gizmos_renderer_add_line(rend, center, p, color, GizmosMode.WORLD_SPACE_2D)
+		}
+		last_p = p
+	}
+}
+
 
 gizmos_renderer_add_line :: #force_inline proc(
 	rend: ^GizmosRenderer,
