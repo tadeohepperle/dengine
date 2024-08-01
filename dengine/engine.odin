@@ -49,7 +49,7 @@ DEFAULT_ENGINE_SETTINGS :: EngineSettings {
 	default_font_size     = 24.0,
 	power_preference      = wgpu.PowerPreference.LowPower,
 	hot_reload_shaders    = true,
-	debug_ui_gizmos       = true,
+	debug_ui_gizmos       = false,
 	debug_collider_gizmos = false,
 }
 
@@ -84,6 +84,7 @@ Engine :: struct {
 	hit_pos:              Vec2,
 	hit_collider:         ColliderMetadata,
 	hit_collider_idx:     int,
+	hit_ui:               bool,
 }
 
 cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
@@ -208,6 +209,7 @@ engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 			}
 		}
 	}
+	engine.hit_ui = engine.ui_renderer.cache.state.hovered_id != 0
 	if engine.hit_collider_idx == -1 {
 		engine.hit_collider = NO_COLLIDER // no hit, set to default.
 	}
@@ -460,14 +462,24 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 		hdr_pass,
 		engine.globals_uniform.bind_group,
 	)
+	gizmos_renderer_render(
+		&engine.gizmos_renderer,
+		hdr_pass,
+		engine.globals_uniform.bind_group,
+		.WORLD_SPACE_2D,
+	)
 	ui_renderer_render(
 		&engine.ui_renderer,
 		hdr_pass,
 		engine.globals_uniform.bind_group,
 		engine.screen_size,
 	)
-
-	gizmos_renderer_render(&engine.gizmos_renderer, hdr_pass, engine.globals_uniform.bind_group)
+	gizmos_renderer_render(
+		&engine.gizmos_renderer,
+		hdr_pass,
+		engine.globals_uniform.bind_group,
+		.UI_LAYOUT_SPACE,
+	)
 	wgpu.RenderPassEncoderEnd(hdr_pass)
 
 	// /////////////////////////////////////////////////////////////////////////////

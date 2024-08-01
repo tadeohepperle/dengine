@@ -50,7 +50,33 @@ gizmos_renderer_prepare :: proc(rend: ^GizmosRenderer, sprites: []Sprite) {
 	}
 }
 
+
 gizmos_renderer_render :: proc(
+	rend: ^GizmosRenderer,
+	render_pass: wgpu.RenderPassEncoder,
+	globals_uniform_bind_group: wgpu.BindGroup,
+	mode: GizmosMode,
+) {
+	vertex_buffer := &rend.vertex_buffers[mode]
+	if vertex_buffer.length == 0 {
+		return
+	}
+	wgpu.RenderPassEncoderSetPipeline(render_pass, rend.pipeline.pipeline)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass, 0, globals_uniform_bind_group)
+	wgpu.RenderPassEncoderSetVertexBuffer(
+		render_pass,
+		0,
+		vertex_buffer.buffer,
+		0,
+		vertex_buffer.size,
+	)
+	mode := mode
+	wgpu.RenderPassEncoderSetPushConstants(render_pass, {.Vertex}, 0, size_of(GizmosMode), &mode)
+	wgpu.RenderPassEncoderDraw(render_pass, u32(vertex_buffer.length), 1, 0, 0)
+}
+
+
+gizmos_renderer_render_all_modes :: proc(
 	rend: ^GizmosRenderer,
 	render_pass: wgpu.RenderPassEncoder,
 	globals_uniform_bind_group: wgpu.BindGroup,

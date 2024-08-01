@@ -145,6 +145,17 @@ gizmos_circle :: proc(
 	)
 }
 
+// Can write directly into these, instead of using one of the `draw_color_mesh` procs.
+color_mesh_write_buffers :: proc(
+) -> (
+	vertices: ^[dynamic]ColorMeshVertex,
+	indices: ^[dynamic]u32,
+) {
+	indices = &ENGINE.color_mesh_renderer.indices
+	vertices = &ENGINE.color_mesh_renderer.vertices
+	return
+}
+
 draw_color_mesh :: proc {
 	draw_color_mesh_vertices_single_color,
 	draw_color_mesh_vertices,
