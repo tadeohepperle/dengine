@@ -51,7 +51,9 @@ camera_controller_update :: proc(cam: ^CameraController) {
 	}
 
 	scroll := input.scroll
-	if abs(scroll) > 0 {
+	if abs(scroll) > 0 &&
+	   .Pressed not_in input.keys[.LEFT_SHIFT] &&
+	   .Pressed not_in input.keys[.LEFT_CONTROL] {
 		cursor_pos := input.cursor_pos
 		// calculate new size
 		size_before := cam.current.y_height

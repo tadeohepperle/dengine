@@ -17,12 +17,22 @@ mouse_btn :: proc(btn: MouseButton = .Left) -> PressFlags {
 	return ENGINE.input.mouse_buttons[btn]
 }
 
+/// with left mouse button
+double_clicked :: proc() -> bool {
+	return ENGINE.input.double_clicked
+}
+
 just_left_pressed :: proc() -> bool {
 	return .JustPressed in ENGINE.input.mouse_buttons[.Left]
 }
 
 just_left_released :: proc() -> bool {
 	return .JustReleased in ENGINE.input.mouse_buttons[.Left]
+}
+
+
+scroll :: proc() -> f32 {
+	return ENGINE.input.scroll
 }
 
 deinit :: proc() {

@@ -3,10 +3,12 @@ import "vendor:glfw"
 
 import "core:fmt"
 import "core:strings"
+import "core:time"
 
 
 MAX_CAPTURES_CHARS :: 16
 
+DOUBLE_CLICK_MAX_INTERVAL_MS :: 220
 Input :: struct {
 	old_cursor_pos_f64, cursor_pos_f64: [2]f64,
 	cursor_pos:                         [2]f32,
@@ -19,6 +21,8 @@ Input :: struct {
 	delta_secs:                         f32,
 	scroll:                             f32,
 	window:                             glfw.WindowHandle,
+	last_left_just_released_time:       time.Time,
+	double_clicked:                     bool,
 }
 
 input_set_clipboard :: proc(input: ^Input, str: string) {
@@ -68,6 +72,7 @@ input_end_of_frame :: proc(input: ^Input) {
 	input.scroll = 0
 	input.chars_len = 0
 	input.cursor_delta = 0
+	input.double_clicked = false
 	for key in Key {
 		state := &input.keys[key]
 		if .Pressed in state {
@@ -109,6 +114,14 @@ input_receive_glfw_mouse_btn_event :: proc(input: ^Input, glfw_button, action: i
 			input.mouse_buttons[button] = {.JustRepeated, .Pressed}
 		case glfw.RELEASE:
 			input.mouse_buttons[button] = {.JustReleased}
+			if button == .Left {
+				now := time.now()
+				if time.diff(input.last_left_just_released_time, now) <
+				   DOUBLE_CLICK_MAX_INTERVAL_MS * time.Millisecond {
+					input.double_clicked = true
+				}
+				input.last_left_just_released_time = now
+			}
 		}
 	}
 }
