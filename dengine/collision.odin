@@ -4,7 +4,7 @@ import "core:math"
 import "core:math/linalg"
 
 
-ColliderMetadata :: [20]u8
+ColliderMetadata :: [24]u8
 NO_COLLIDER: ColliderMetadata = {}
 
 Collider :: struct {

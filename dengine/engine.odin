@@ -297,8 +297,7 @@ _engine_debug_ui_gizmos :: proc(engine: ^Engine) {
 	cache := &engine.ui_renderer.cache
 	state := &cache.state
 
-	@(static)
-	last_state: InteractionState(UiId)
+	@(static)last_state: InteractionState(UiId)
 
 	if state.hovered_id != last_state.hovered_id {
 		print("  hovered_id:", last_state.hovered_id, "->", state.hovered_id)
