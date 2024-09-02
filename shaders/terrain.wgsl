@@ -66,7 +66,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32>  {
     let alter_factor = 1.0 - smoothstep(0.45,0.5, hex_dist);
               
     // weights[max_i]  *= (n + 0.5 )* alter_factor;
-     weights = accentuate_weights_exp(weights,3.0);
+     weights = accentuate_weights_exp(weights,9.0);
 
 
 

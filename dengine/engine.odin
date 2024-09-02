@@ -8,6 +8,10 @@ import glfw "vendor:glfw"
 import wgpu "vendor:wgpu"
 import wgpu_glfw "vendor:wgpu/glfwglue"
 
+main :: proc() {
+	print("Hello!")
+}
+
 SURFACE_FORMAT := wgpu.TextureFormat.BGRA8UnormSrgb
 HDR_FORMAT := wgpu.TextureFormat.RGBA16Float
 HDR_SCREEN_TEXTURE_SETTINGS := TextureSettings {
@@ -444,7 +448,6 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 			timestampWrites = nil,
 		},
 	)
-	defer wgpu.RenderPassEncoderRelease(hdr_pass)
 
 	terrain_renderer_render(
 		&engine.terrain_renderer,
@@ -480,7 +483,7 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 		.UI_LAYOUT_SPACE,
 	)
 	wgpu.RenderPassEncoderEnd(hdr_pass)
-
+	wgpu.RenderPassEncoderRelease(hdr_pass)
 	// /////////////////////////////////////////////////////////////////////////////
 	// SECTION: Tonemapping and Bloom
 	// /////////////////////////////////////////////////////////////////////////////

@@ -3,9 +3,9 @@ package dengine
 import wgpu "vendor:wgpu"
 
 TerrainVertex :: struct {
-	pos:     Vec2, // per vertex
-	indices: UVec3, // per triangle (same for all vertices in each triangle)
-	weights: Vec3, // per vertex
+	pos:       Vec2, // per vertex
+	indices:   UVec3, // per triangle (same for all vertices in each triangle)
+	weights:   Vec3, // per vertex
 	direction: Vec3, // per vertex (3 dimensions for seamless interpolation at triangles between 3 hexes)
 }
 
@@ -148,8 +148,7 @@ terrain_pipeline_config :: proc(
 
 
 terrain_textures_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
-	@(static)
-	layout: wgpu.BindGroupLayout
+	@(static)layout: wgpu.BindGroupLayout
 	if layout == nil {
 		entries := [?]wgpu.BindGroupLayoutEntry {
 			wgpu.BindGroupLayoutEntry {

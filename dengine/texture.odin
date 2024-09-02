@@ -185,8 +185,7 @@ texture_destroy :: proc(texture: ^Texture) {
 }
 
 rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
-	@(static)
-	layout: wgpu.BindGroupLayout
+	@(static)layout: wgpu.BindGroupLayout
 	if layout == nil {
 		entries := [?]wgpu.BindGroupLayoutEntry {
 			wgpu.BindGroupLayoutEntry {
@@ -221,7 +220,6 @@ TextureTile :: struct {
 	uv:      Aabb,
 }
 
-
 TextureArray :: struct {
 	settings:   TextureSettings,
 	size:       UVec2,
@@ -233,8 +231,7 @@ TextureArray :: struct {
 }
 
 rgba_texture_array_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
-	@(static)
-	layout: wgpu.BindGroupLayout
+	@(static)layout: wgpu.BindGroupLayout
 	if layout == nil {
 		entries := [?]wgpu.BindGroupLayoutEntry {
 			wgpu.BindGroupLayoutEntry {

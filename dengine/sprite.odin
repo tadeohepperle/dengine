@@ -1,6 +1,5 @@
 package dengine
 
-import "core:fmt"
 import "core:slice"
 import wgpu "vendor:wgpu"
 

@@ -57,8 +57,7 @@ hit_pos :: #force_inline proc() -> Vec2 {
 }
 
 frame :: proc() -> bool {
-	@(static)
-	LOOP_INITIALIZED := false
+	@(static)LOOP_INITIALIZED := false
 
 	if LOOP_INITIALIZED {
 		engine_end_frame(&ENGINE, &SCENE)
