@@ -2,8 +2,10 @@ package dengine
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "core:os"
 import "core:strings"
+import "core:time"
 import glfw "vendor:glfw"
 import wgpu "vendor:wgpu"
 import wgpu_glfw "vendor:wgpu/glfwglue"
@@ -35,9 +37,11 @@ EngineSettings :: struct {
 	default_font_color:    Color,
 	default_font_size:     f32,
 	power_preference:      wgpu.PowerPreference,
+	present_mode:          wgpu.PresentMode,
 	hot_reload_shaders:    bool,
 	debug_ui_gizmos:       bool,
 	debug_collider_gizmos: bool,
+	debug_fps_in_title:    bool,
 }
 
 DEFAULT_ENGINE_SETTINGS :: EngineSettings {
@@ -51,44 +55,51 @@ DEFAULT_ENGINE_SETTINGS :: EngineSettings {
 	default_font_path     = "assets/marko_one_regular",
 	default_font_color    = Color_White,
 	default_font_size     = 24.0,
-	power_preference      = wgpu.PowerPreference.LowPower,
+	power_preference      = wgpu.PowerPreference.HighPerformance,
+	present_mode          = wgpu.PresentMode.Immediate,
 	hot_reload_shaders    = true,
 	debug_ui_gizmos       = false,
 	debug_collider_gizmos = false,
+	debug_fps_in_title    = true,
 }
 
 Engine :: struct {
-	total_time_f64:       f64, // in seconds
-	delta_time_f64:       f64, // in seconds
-	total_secs:           f32,
-	delta_secs:           f32,
-	input:                Input,
-	settings:             EngineSettings,
-	screen_size:          [2]u32,
-	screen_size_f32:      [2]f32,
-	resized:              bool,
-	should_close:         bool,
-	window:               glfw.WindowHandle,
-	surface_config:       wgpu.SurfaceConfiguration,
-	surface:              wgpu.Surface,
-	instance:             wgpu.Instance,
-	adapter:              wgpu.Adapter,
-	device:               wgpu.Device,
-	queue:                wgpu.Queue,
-	hdr_screen_texture:   Texture,
-	shader_registry:      ShaderRegistry,
-	globals_uniform:      UniformBuffer(Globals),
-	tonemapping_pipeline: RenderPipeline,
-	bloom_renderer:       BloomRenderer,
-	sprite_renderer:      SpriteRenderer,
-	gizmos_renderer:      GizmosRenderer,
-	ui_renderer:          UiRenderer,
-	color_mesh_renderer:  ColorMeshRenderer,
-	terrain_renderer:     TerrainRenderer,
-	hit_pos:              Vec2,
-	hit_collider:         ColliderMetadata,
-	hit_collider_idx:     int,
-	hit_ui:               bool,
+	total_time_f64:            f64, // in seconds
+	delta_time_f64:            f64, // in seconds
+	total_secs:                f32,
+	delta_secs:                f32,
+	input:                     Input,
+	settings:                  EngineSettings,
+	screen_size:               [2]u32,
+	screen_size_f32:           [2]f32,
+	resized:                   bool,
+	should_close:              bool,
+	window:                    glfw.WindowHandle,
+	surface_config:            wgpu.SurfaceConfiguration,
+	surface:                   wgpu.Surface,
+	instance:                  wgpu.Instance,
+	adapter:                   wgpu.Adapter,
+	device:                    wgpu.Device,
+	queue:                     wgpu.Queue,
+	hdr_screen_texture:        Texture,
+	shader_registry:           ShaderRegistry,
+	globals_uniform:           UniformBuffer(Globals),
+	tonemapping_pipeline:      RenderPipeline,
+	bloom_renderer:            BloomRenderer,
+	sprite_renderer:           SpriteRenderer,
+	gizmos_renderer:           GizmosRenderer,
+	ui_renderer:               UiRenderer,
+	color_mesh_renderer:       ColorMeshRenderer,
+	terrain_renderer:          TerrainRenderer,
+	hit_pos:                   Vec2,
+	hit_collider:              ColliderMetadata,
+	hit_collider_idx:          int,
+	hit_ui:                    bool,
+	time_frame_sections:       [dynamic][FrameSection]Duration,
+	is_timing_frame_sections:  bool,
+	time_query_set:            wgpu.QuerySet,
+	time_query_resolve_buffer: wgpu.Buffer,
+	time_query_result_buffer:  wgpu.Buffer,
 }
 
 cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
@@ -114,6 +125,23 @@ engine_create :: proc(
 	engine.settings = engine_settings
 	_init_glfw_window(engine)
 	_init_wgpu(engine)
+
+	query_set_count: u32 = 2
+	engine.time_query_set = wgpu.DeviceCreateQuerySet(
+		engine.device,
+		&wgpu.QuerySetDescriptor{type = .Timestamp, count = query_set_count},
+	)
+	engine.time_query_resolve_buffer = wgpu.DeviceCreateBuffer(
+		engine.device,
+		&wgpu.BufferDescriptor{size = u64(query_set_count) * 8, usage = {.QueryResolve, .CopySrc}},
+	)
+	engine.time_query_result_buffer = wgpu.DeviceCreateBuffer(
+		engine.device,
+		&wgpu.BufferDescriptor{size = u64(query_set_count) * 8, usage = {.MapRead, .CopyDst}}, // .MapRead, 
+	)
+	// wgpu.QuerySetDestroy(engine.time_query_set)
+	// wgpu.BufferDestroy(engine.time_query_resolve_buffer)
+	// wgpu.BufferDestroy(engine.time_query_result_buffer)
 
 	hdr_screen_texture = texture_create(device, screen_size, HDR_SCREEN_TEXTURE_SETTINGS)
 	shader_registry = shader_registry_create(device, engine_settings.shaders_dir_path)
@@ -180,9 +208,13 @@ engine_destroy :: proc(engine: ^Engine) {
 	wgpu.QueueRelease(engine.queue)
 	wgpu.DeviceDestroy(engine.device)
 	wgpu.InstanceRelease(engine.instance)
+
+	delete(engine.time_frame_sections)
 }
 
 engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
+	frame_section_start(engine, .Frame)
+	frame_section_start(engine, .Frame_Start)
 	if engine.should_close {
 		return false
 	}
@@ -227,6 +259,7 @@ engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 	}
 
 	ui_renderer_start_frame(&engine.ui_renderer, engine.screen_size_f32, &engine.input)
+	frame_section_end(engine, .Frame_Start)
 	return true
 }
 
@@ -248,10 +281,11 @@ _engine_hot_reload_shaders :: proc(engine: ^Engine) {
 }
 
 engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
+	frame_section_start(engine, .Frame_End)
+	frame_section_start(engine, .Frame_End_Debug)
 	if engine.resized {
 		_engine_resize(engine)
 	}
-	_engine_prepare(engine, scene)
 	if engine.settings.debug_ui_gizmos {
 		_engine_debug_ui_gizmos(engine)
 	}
@@ -259,11 +293,23 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 		_engine_debug_collider_gizmos(engine, scene)
 	}
 	input_end_of_frame(&engine.input)
+	frame_section_end(engine, .Frame_End_Debug)
+
+	_engine_prepare(engine, scene)
+
+	if engine.settings.debug_fps_in_title {
+		dt_ms := engine.delta_secs * 1000
+		fps := int(1.0 / engine.delta_secs)
+		title := fmt.caprintf("%d fps/ %.2f ms", fps, dt_ms, allocator = context.temp_allocator)
+		glfw.SetWindowTitle(engine.window, title)
+	}
+
 	_engine_render(engine, scene)
 	scene_clear(scene)
 	free_all(context.temp_allocator)
+	frame_section_end(engine, .Frame_End)
+	frame_section_end(engine, .Frame)
 }
-
 
 @(private)
 _engine_debug_collider_gizmos :: proc(engine: ^Engine, scene: ^Scene) {
@@ -370,6 +416,7 @@ _engine_resize :: proc(engine: ^Engine) {
 
 @(private)
 _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
+	frame_section_start(engine, .Frame_End_Prepare)
 	screen_size := engine.screen_size_f32
 	camera_size := Vec2 {
 		scene.camera.y_height / screen_size.y * screen_size.x,
@@ -388,11 +435,16 @@ _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 	color_mesh_renderer_prepare(&engine.color_mesh_renderer)
 	gizmos_renderer_prepare(&engine.gizmos_renderer, scene.sprites[:])
 	ui_renderer_end_frame_and_prepare_buffers(&engine.ui_renderer, engine.delta_secs)
+	frame_section_end(engine, .Frame_End_Prepare)
 }
 
 @(private)
 _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
+	frame_section_start(engine, .Frame_End_Render)
+	frame_section_start(engine, .Frame_End_Render_GetTexture)
 	surface_texture := wgpu.SurfaceGetCurrentTexture(engine.surface)
+	frame_section_end(engine, .Frame_End_Render_GetTexture)
+
 	switch surface_texture.status {
 	case .Success:
 	// All good, could check for `surface_texture.suboptimal` here.
@@ -423,6 +475,7 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 	)
 	defer wgpu.TextureViewRelease(surface_view)
 
+	frame_section_start(engine, .Frame_End_Render_EncodeCommands)
 	command_encoder := wgpu.DeviceCreateCommandEncoder(engine.device, nil)
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
@@ -512,10 +565,14 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 
 	command_buffer := wgpu.CommandEncoderFinish(command_encoder, nil)
 	defer wgpu.CommandBufferRelease(command_buffer)
-
+	frame_section_end(engine, .Frame_End_Render_EncodeCommands)
+	frame_section_start(engine, .Frame_End_Render_QueueSubmit)
 	wgpu.QueueSubmit(engine.queue, {command_buffer})
+	frame_section_end(engine, .Frame_End_Render_QueueSubmit)
+	frame_section_start(engine, .Frame_End_Render_Present)
 	wgpu.SurfacePresent(engine.surface)
-
+	frame_section_end(engine, .Frame_End_Render_Present)
+	frame_section_end(engine, .Frame_End_Render)
 }
 
 @(private)
@@ -644,7 +701,7 @@ _init_wgpu :: proc(engine: ^Engine) {
 	device_res: DeviceRes
 
 
-	required_features := [?]wgpu.FeatureName{.PushConstants}
+	required_features := [?]wgpu.FeatureName{.PushConstants, .TimestampQuery}
 	required_limits_extras := wgpu.RequiredLimitsExtras {
 		chain = {sType = .RequiredLimitsExtras},
 		limits = wgpu.NativeLimits{maxPushConstantSize = 128, maxNonSamplerBindings = 1_000_000},
@@ -694,7 +751,7 @@ _init_wgpu :: proc(engine: ^Engine) {
 		alphaMode       = .Opaque,
 		width           = engine.screen_size.x,
 		height          = engine.screen_size.y,
-		presentMode     = .Immediate,
+		presentMode     = engine.settings.present_mode,
 	}
 
 	// wgpu_error_callback :: proc "c" (type: wgpu.ErrorType, message: cstring, userdata: rawptr) {
@@ -776,4 +833,69 @@ tonemap :: proc(
 	wgpu.RenderPassEncoderDraw(tonemap_pass, 3, 1, 0, 0)
 
 	wgpu.RenderPassEncoderEnd(tonemap_pass)
+}
+
+
+FRAME_TIME_PROFILING_ENABLED :: true
+FrameSection :: enum {
+	Frame, // entire frame
+	Frame_Start,
+	Frame_User,
+	Frame_End,
+	Frame_End_Debug,
+	Frame_End_Prepare,
+	Frame_End_Render,
+	Frame_End_Render_GetTexture,
+	Frame_End_Render_EncodeCommands,
+	Frame_End_Render_QueueSubmit,
+	Frame_End_Render_Present,
+}
+
+Duration :: time.Duration
+
+engine_start_record_frame_times :: proc(engine: ^Engine = nil) {
+	engine := engine
+	if engine == nil {
+		engine = &ENGINE
+	}
+	assert(!engine.is_timing_frame_sections)
+	clear(&engine.time_frame_sections)
+	reserve(&engine.time_frame_sections, 20000)
+	engine.is_timing_frame_sections = true
+}
+engine_end_record_frame_times :: proc(engine: ^Engine = nil) -> [][FrameSection]Duration {
+	engine := engine
+	if engine == nil {
+		engine = &ENGINE
+	}
+	assert(engine.is_timing_frame_sections)
+	engine.is_timing_frame_sections = false
+	return engine.time_frame_sections[:len(engine.time_frame_sections) - 1] // omit last incomplete element
+}
+
+@(disabled = !FRAME_TIME_PROFILING_ENABLED)
+frame_section_start :: proc(using engine: ^Engine, section: FrameSection) {
+	if !is_timing_frame_sections {
+		return
+	}
+	if section == .Frame {
+		append(&time_frame_sections, [FrameSection]Duration{})
+	}
+	if len(time_frame_sections) == 0 {
+		return
+	}
+	time_frame_sections[len(time_frame_sections) - 1][section] = transmute(Duration)time.now()
+}
+
+@(disabled = !FRAME_TIME_PROFILING_ENABLED)
+frame_section_end :: proc(using engine: ^Engine, section: FrameSection) {
+	if !is_timing_frame_sections {
+		return
+	}
+	if len(time_frame_sections) == 0 {
+		return
+	}
+	ref := &time_frame_sections[len(time_frame_sections) - 1][section]
+	start_time := transmute(time.Time)ref^
+	ref^ = time.diff(start_time, time.now())
 }

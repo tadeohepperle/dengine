@@ -2,6 +2,7 @@ package dengine
 
 import "core:image"
 import "core:math"
+import "core:time"
 // This module contains some global state and exposes functions making it easy to interact with it.
 // Mostly wrappers around functions targeting engine and scene.
 

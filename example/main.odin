@@ -4,10 +4,15 @@ import d "../dengine"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:os"
 import "core:strings"
+import "core:time"
 
 Vec2 :: [2]f32
 Color :: [4]f32
+
+
+recorded_dt: [dynamic]f32
 
 main :: proc() {
 	d.init()
@@ -58,8 +63,16 @@ main :: proc() {
 	text_align: d.TextAlign
 
 	for d.frame() {
+		append(&recorded_dt, d.ENGINE.delta_secs * 1000.0)
 		d.start_window("Example Window")
-		d.button("Hello!", id = "nonowowowowowpowd")
+		i := d.button("Hello!", id = "nonowowowowowpowd")
+		if i.just_pressed {
+			d.engine_start_record_frame_times()
+		}
+		if i.just_released {
+			frame_times := d.engine_end_record_frame_times()
+			save_frame_times_to_csv(frame_times)
+		}
 		d.enum_radio(&text_align, "Text Align")
 		d.enum_radio(&d.ENGINE.settings.tonemapping, "Tonemapping")
 		d.color_picker(&background_color, "Background")
@@ -136,7 +149,7 @@ Snake :: struct {
 }
 SNAKE_PTS :: 50
 SNAKE_PT_DIST :: 0.16
-SNAKE_LERP_SPEED :: 100
+SNAKE_LERP_SPEED :: 40
 snake_create :: proc(head_pos: Vec2) -> Snake {
 	snake: Snake
 	next_pt := head_pos
@@ -247,4 +260,28 @@ snake_draw :: proc(snake: ^Snake) {
 	// }
 	// d.draw_color_mesh(new_vertices[:])
 	d.draw_color_mesh_indexed(snake.vertices[:], snake.indices[:])
+}
+
+
+save_frame_times_to_csv :: proc(times: [][d.FrameSection]d.Duration, filename := "times.csv") {
+	buf: ^strings.Builder = new(strings.Builder)
+	defer {
+		strings.builder_destroy(buf)
+		free(buf)
+	}
+	for t in d.FrameSection {
+		fmt.sbprintf(buf, "%s,", t)
+	}
+	fmt.sbprint(buf, "\n")
+	for sample, i in times {
+		for t, t_i in d.FrameSection {
+			ns := f64(sample[t])
+			ms := ns / f64(time.Millisecond)
+			fmt.sbprintf(buf, "%.3f,", ms)
+		}
+		if i != len(times) - 1 {
+			fmt.sbprint(buf, "\n")
+		}
+	}
+	os.write_entire_file(filename, buf.buf[:])
 }

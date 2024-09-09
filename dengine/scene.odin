@@ -19,7 +19,6 @@ scene_create :: proc(scene: ^Scene) {
 
 scene_destroy :: proc(scene: ^Scene) {
 	delete(scene.sprites)
-	free(scene)
 }
 
 scene_clear :: proc(scene: ^Scene) {
