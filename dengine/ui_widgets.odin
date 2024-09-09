@@ -309,7 +309,7 @@ start_window :: proc(title: string) {
 	start_div(
 		Div {
 			offset = window_pos,
-			width = 300,
+			width = 320,
 			border_radius = THEME.border_radius,
 			color = THEME.background,
 			flags = {.Absolute, .WidthPx},
@@ -634,10 +634,8 @@ color_picker :: proc(value: ^Color, title: string = "", id: UiId = 0) {
 		end_div() // end hue slider area
 
 
-		@(static)
-		builder_created: bool
-		@(static)
-		color_hex_str: strings.Builder
+		@(static)builder_created: bool
+		@(static)color_hex_str: strings.Builder
 		if !builder_created {
 			builder_created = true
 			color_hex_str := strings.builder_make(allocator = context.temp_allocator)

@@ -127,18 +127,18 @@ engine_create :: proc(
 	_init_wgpu(engine)
 
 	query_set_count: u32 = 2
-	engine.time_query_set = wgpu.DeviceCreateQuerySet(
-		engine.device,
-		&wgpu.QuerySetDescriptor{type = .Timestamp, count = query_set_count},
-	)
-	engine.time_query_resolve_buffer = wgpu.DeviceCreateBuffer(
-		engine.device,
-		&wgpu.BufferDescriptor{size = u64(query_set_count) * 8, usage = {.QueryResolve, .CopySrc}},
-	)
-	engine.time_query_result_buffer = wgpu.DeviceCreateBuffer(
-		engine.device,
-		&wgpu.BufferDescriptor{size = u64(query_set_count) * 8, usage = {.MapRead, .CopyDst}}, // .MapRead, 
-	)
+	// engine.time_query_set = wgpu.DeviceCreateQuerySet(
+	// 	engine.device,
+	// 	&wgpu.QuerySetDescriptor{type = .Timestamp, count = query_set_count},
+	// )
+	// engine.time_query_resolve_buffer = wgpu.DeviceCreateBuffer(
+	// 	engine.device,
+	// 	&wgpu.BufferDescriptor{size = u64(query_set_count) * 8, usage = {.QueryResolve, .CopySrc}},
+	// )
+	// engine.time_query_result_buffer = wgpu.DeviceCreateBuffer(
+	// 	engine.device,
+	// 	&wgpu.BufferDescriptor{size = u64(query_set_count) * 8, usage = {.MapRead, .CopyDst}}, // .MapRead, 
+	// )
 	// wgpu.QuerySetDestroy(engine.time_query_set)
 	// wgpu.BufferDestroy(engine.time_query_resolve_buffer)
 	// wgpu.BufferDestroy(engine.time_query_result_buffer)

@@ -65,7 +65,16 @@ main :: proc() {
 	for d.frame() {
 		append(&recorded_dt, d.ENGINE.delta_secs * 1000.0)
 		d.start_window("Example Window")
-		i := d.button("Hello!", id = "nonowowowowowpowd")
+		btn_text := "Hold to Record"
+		if d.ui_interaction(d.ui_id("record_btn")).pressed {
+			btn_text = fmt.aprint(
+				"Recording",
+				len(d.ENGINE.time_frame_sections),
+				"frames",
+				allocator = context.temp_allocator,
+			)
+		}
+		i := d.button(btn_text, id = "record_btn")
 		if i.just_pressed {
 			d.engine_start_record_frame_times()
 		}
