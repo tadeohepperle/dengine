@@ -1,4 +1,7 @@
-# Simple 2D-Game Framework in Odin
+# Simple WIP 2D-Game Framework in Odin
 - wgpu renderer
 - hot-reloading of shaders
-- WIP
+- simple ui system
+
+
+![Screenshot_20240911_182811](https://github.com/user-attachments/assets/b0a9a396-06a5-493d-8a93-415ad172c4bf)
