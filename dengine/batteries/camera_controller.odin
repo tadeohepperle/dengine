@@ -6,9 +6,9 @@ DEFAULT_CAMERA_CONTROLLER_SETTINGS := CameraSettings {
 	min_size           = 2.0,
 	max_size           = 700.0,
 	default_size       = 10.0,
-	lerp_speed         = 30.0,
+	lerp_speed         = 40.0,
 	zoom_sensitivity   = 0.24,
-	scroll_sensitivity = 0.12,
+	scroll_sensitivity = 0.2,
 }
 
 CameraSettings :: struct {
