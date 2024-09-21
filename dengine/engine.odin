@@ -10,9 +10,6 @@ import glfw "vendor:glfw"
 import wgpu "vendor:wgpu"
 import wgpu_glfw "vendor:wgpu/glfwglue"
 
-main :: proc() {
-	print("Hello!")
-}
 
 SURFACE_FORMAT := wgpu.TextureFormat.BGRA8UnormSrgb
 HDR_FORMAT := wgpu.TextureFormat.RGBA16Float
@@ -103,18 +100,18 @@ Engine :: struct {
 	assets:                    EngineAssets,
 }
 
-
 cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
-	p := (cursor_pos - (screen_size / 2)) * 2.0 / screen_size.y * camera.y_height
-	p.x = -p.x
-	return camera.pos - p
+	// p := (cursor_pos - (screen_size / 2)) * 2.0 / screen_size.y * camera.y_height
+	// p.x = -p.x
+	// return camera.pos - p
+	// todo()
+	return {}
 }
 
 Globals :: struct {
+	camera_raw:  CameraRaw,
 	screen_size: Vec2,
 	cursor_pos:  Vec2,
-	camera_pos:  Vec2,
-	camera_size: Vec2,
 	time_secs:   f32,
 	_pad:        f32,
 }
@@ -421,16 +418,12 @@ _engine_resize :: proc(engine: ^Engine) {
 _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 	frame_section_start(engine, .Frame_End_Prepare)
 	screen_size := engine.screen_size_f32
-	camera_size := Vec2 {
-		scene.camera.y_height / screen_size.y * screen_size.x,
-		scene.camera.y_height,
-	}
+	camera_raw := camera_to_raw(scene.camera, screen_size)
 	cursor_pos := [2]f32{f32(engine.input.cursor_pos.x), f32(engine.input.cursor_pos.y)}
 	globals := Globals {
 		screen_size = screen_size,
 		cursor_pos  = cursor_pos,
-		camera_pos  = scene.camera.pos,
-		camera_size = camera_size,
+		camera_raw  = camera_raw,
 		time_secs   = f32(engine.total_time_f64),
 	}
 	uniform_buffer_write(engine.queue, &engine.globals_uniform, &globals)

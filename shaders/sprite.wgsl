@@ -6,9 +6,9 @@ var t_diffuse: texture_2d<f32>;
 var s_diffuse: sampler;
 
 struct SpriteInstance {
-    @location(0) pos:      vec2<f32>,
-    @location(1) size:     vec2<f32>,
-    @location(2) rotation: f32,
+    @location(0) pos:      vec3<f32>,
+    @location(1) rotation: f32,
+    @location(2) size:     vec2<f32>,
     @location(3) color:    vec4<f32>,
     @location(4) uv:       vec4<f32>, // aabb
 }
@@ -23,7 +23,7 @@ struct VertexOutput{
 fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: SpriteInstance) -> VertexOutput {
     let pos_and_uv = pos_and_uv(vertex_index, instance);
     var out: VertexOutput;
-    out.clip_position = world_pos_to_ndc(pos_and_uv.pos);
+    out.clip_position = world_pos_to_ndc(vec3<f32>(pos_and_uv.pos, instance.pos.z));
     out.color = instance.color;
     out.uv = pos_and_uv.uv;
     return out;
@@ -56,7 +56,7 @@ fn pos_and_uv(vertex_index: u32, instance: SpriteInstance) -> PosAndUv{
         cos(rot)* pos.x - sin(rot)* pos.y,
         sin(rot)* pos.x + cos(rot)* pos.y,     
     );
-    out.pos = pos_rotated + instance.pos;
+    out.pos = pos_rotated + instance.pos.xy;
     return out;
 }
 

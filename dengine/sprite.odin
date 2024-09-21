@@ -7,16 +7,16 @@ import wgpu "vendor:wgpu"
 Sprite :: struct {
 	z:        i32,
 	texture:  TextureTile,
-	pos:      Vec2,
+	pos:      Vec3,
 	size:     Vec2,
 	rotation: f32,
 	color:    Color,
 }
 
 SpriteInstance :: struct {
-	pos:      Vec2,
-	size:     Vec2,
+	pos:      Vec3,
 	rotation: f32,
+	size:     Vec2,
 	color:    Color,
 	uv:       Aabb,
 }
@@ -176,9 +176,9 @@ sprite_pipeline_config :: proc(
 		instance = {
 			ty_id = SpriteInstance,
 			attributes = {
-				{format = .Float32x2, offset = offset_of(SpriteInstance, pos)},
-				{format = .Float32x2, offset = offset_of(SpriteInstance, size)},
+				{format = .Float32x3, offset = offset_of(SpriteInstance, pos)},
 				{format = .Float32, offset = offset_of(SpriteInstance, rotation)},
+				{format = .Float32x2, offset = offset_of(SpriteInstance, size)},
 				{format = .Float32x4, offset = offset_of(SpriteInstance, color)},
 				{format = .Float32x4, offset = offset_of(SpriteInstance, uv)},
 			},

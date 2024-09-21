@@ -11,10 +11,7 @@ Scene :: struct {
 }
 
 scene_create :: proc(scene: ^Scene) {
-	scene.camera = Camera {
-		pos      = {0, 0},
-		y_height = 10,
-	}
+	scene.camera = DEFAULT_CAMERA
 }
 
 scene_destroy :: proc(scene: ^Scene) {

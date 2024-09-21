@@ -189,6 +189,7 @@ slider_f64 :: proc(value: ^f64, min: f64 = 0, max: f64 = 1, id: UiId = 0) {
 	value^ = f64(value_f32)
 }
 
+
 slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UiId = 0) {
 	slider_width: f32 = 192
 	knob_width: f32 = 24
@@ -309,7 +310,7 @@ start_window :: proc(title: string) {
 	start_div(
 		Div {
 			offset = window_pos,
-			width = 320,
+			width = 500,
 			border_radius = THEME.border_radius,
 			color = THEME.background,
 			flags = {.Absolute, .WidthPx},

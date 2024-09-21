@@ -39,17 +39,19 @@ aabb_intersects :: proc "contextless" (a: Aabb, b: Aabb) -> bool {
 }
 
 
-Camera :: struct {
-	pos:      Vec2,
-	y_height: f32,
-}
-
 DVec2 :: [2]f64
 Vec2 :: [2]f32
 Vec3 :: [3]f32
+Vec4 :: [4]f32
+Mat4 :: matrix[4, 4]f32
 UVec2 :: [2]u32
 UVec3 :: [3]u32
 IVec2 :: [2]i32
+
+Ray :: struct {
+	direction: Vec3,
+	origin:    Vec3,
+}
 
 next_pow2_number :: proc(n: int) -> int {
 	next: int = 2

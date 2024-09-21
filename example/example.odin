@@ -9,6 +9,7 @@ import "core:strings"
 import "core:time"
 
 Vec2 :: [2]f32
+Vec3 :: [3]f32
 Color :: [4]f32
 
 recorded_dt: [dynamic]f32
@@ -43,7 +44,7 @@ main :: proc() {
 	sprite := d.load_texture_tile("./assets/can.png")
 
 
-	player_pos := Vec2{0, 0}
+	player_pos := Vec3{0, 0, 0}
 	forest := [?]Vec2{{0, 0}, {2, 0}, {3, 0}, {5, 2}, {6, 3}}
 
 	snake := snake_create({3, 3})
@@ -76,17 +77,43 @@ main :: proc() {
 			frame_times := d.engine_end_record_frame_times()
 			save_frame_times_to_csv(frame_times)
 		}
-		d.enum_radio(&text_align, "Text Align")
-		d.enum_radio(&d.ENGINE.settings.tonemapping, "Tonemapping")
-		d.color_picker(&background_color, "Background")
-		d.color_picker(&color2, "Color 2")
-		d.color_picker(&color3, "Color 3")
-		// enum_radio(&line_break, "Line Break Value")
-		d.toggle(&d.ENGINE.settings.bloom_enabled, "Bloom")
-		// d.check_box(&d.ENGINE.settings.bloom_enabled, "Bloom enabled")
-		d.text("Bloom blend factor:")
-		d.slider(&d.ENGINE.settings.bloom_settings.blend_factor)
-		d.text_edit(&text_to_edit, align = .Center, font_size = d.THEME.font_size)
+
+		d.text("fovy_y")
+		d.slider_f32(&d.SCENE.camera.fov_y, 0.1, 2.0)
+		d.text("height_y")
+		d.slider_f32(&d.SCENE.camera.height_y, 0.1, 40.0)
+
+
+		d.text("focus_pos_x")
+		d.slider_f32(&d.SCENE.camera.focus_pos.x, -20, 20)
+		d.text("focus_pos_y")
+		d.slider_f32(&d.SCENE.camera.focus_pos.y, -20, 20)
+		d.text("focus_pos_z")
+		d.slider_f32(&d.SCENE.camera.focus_pos.z, -20, 20)
+
+		d.text("eye_x")
+		d.slider_f32(&d.SCENE.camera.eye_pos.x, -20, 20)
+		d.text("eye_y")
+		d.slider_f32(&d.SCENE.camera.eye_pos.y, -20, 20)
+		d.text("eye_z")
+		d.slider_f32(&d.SCENE.camera.eye_pos.z, -20, 20)
+		d.text(
+			fmt.aprint(
+				d.camera_to_raw(d.SCENE.camera, d.ENGINE.screen_size_f32),
+				allocator = context.temp_allocator,
+			),
+		)
+		// d.enum_radio(&text_align, "Text Align")
+		// d.enum_radio(&d.ENGINE.settings.tonemapping, "Tonemapping")
+		// d.color_picker(&background_color, "Background")
+		// d.color_picker(&color2, "Color 2")
+		// d.color_picker(&color3, "Color 3")
+		// // enum_radio(&line_break, "Line Break Value")
+		// d.toggle(&d.ENGINE.settings.bloom_enabled, "Bloom")
+		// // d.check_box(&d.ENGINE.settings.bloom_enabled, "Bloom enabled")
+		// d.text("Bloom blend factor:")
+		// d.slider(&d.ENGINE.settings.bloom_settings.blend_factor)
+		// d.text_edit(&text_to_edit, align = .Center, font_size = d.THEME.font_size)
 
 		d.end_window()
 
@@ -102,7 +129,7 @@ main :: proc() {
 		d.draw_sprite(
 			d.Sprite {
 				texture = sprite,
-				pos = {-3, 5},
+				pos = player_pos,
 				size = {1, 2.2},
 				rotation = 0,
 				color = d.Color_White,
@@ -114,7 +141,7 @@ main :: proc() {
 			d.draw_sprite(
 				d.Sprite {
 					texture = corn,
-					pos = pos,
+					pos = Vec3{pos.x, pos.y, 0},
 					size = {1, 2},
 					rotation = math.cos(f32(i) + d.ENGINE.total_secs),
 					color = {1, 1, 1, 1},
@@ -122,22 +149,22 @@ main :: proc() {
 			)
 		}
 
-		keys := [?]d.Key{.LEFT, .RIGHT, .UP, .DOWN}
-		directions := [?]Vec2{{-1, 0}, {1, 0}, {0, 1}, {0, -1}}
-		move: Vec2
+		keys := [?]d.Key{.LEFT, .RIGHT, .UP, .DOWN, .O, .L}
+		directions := [?]Vec3{{-1, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}}
+		move: Vec3
 		for k, i in keys {
 			if d.is_key_pressed(k) {
 				move += directions[i]
 			}
 		}
-		if move != {0, 0} {
+		if move != {0, 0, 0} {
 			move = linalg.normalize(move)
 			player_pos += move * 20 * d.ENGINE.delta_secs
 		}
 
 		// poly := [?]d.Vec2{{-5, -5}, {-5, 0}, {0, 0}, {-5, -5}, {0, 0}, {0, -5}}
 		// d.draw_color_mesh(poly[:])
-		snake_update_body(&snake, d.ENGINE.hit_pos)
+		snake_update_body(&snake, Vec2{})
 		snake_draw(&snake)
 		d.ENGINE.settings.clear_color = background_color
 

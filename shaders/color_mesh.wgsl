@@ -13,7 +13,7 @@ struct VertexOutput{
 @vertex
 fn vs_main(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = world_pos_to_ndc(vertex.pos);
+    out.clip_position = world_pos_to_ndc(vec3<f32>(vertex.pos, 0.0));
     out.color = vertex.color;
     return out;
 }

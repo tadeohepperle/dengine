@@ -21,7 +21,7 @@ fn vs_main(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
     switch gizmos_mode {
         case GIZMOS_MODE_WORLD_SPACE_2D: {
-            out.clip_position = world_pos_to_ndc(vertex.pos);
+            out.clip_position = world_pos_to_ndc(vec3<f32>(vertex.pos, 0.0));
         }
         case GIZMOS_MODE_UI_LAYOUT_SPACE, default: {
             out.clip_position = ui_layout_pos_to_ndc(vertex.pos);
