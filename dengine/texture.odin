@@ -25,13 +25,24 @@ TextureSettings :: struct {
 	usage:        wgpu.TextureUsageFlags,
 }
 
+// Can also represent a texture array if info.layers > 1
 Texture :: struct {
-	settings:   TextureSettings,
-	size:       UVec2,
+	info:       TextureInfo,
 	texture:    wgpu.Texture,
 	view:       wgpu.TextureView,
 	sampler:    wgpu.Sampler,
 	bind_group: wgpu.BindGroup,
+}
+
+TextureInfo :: struct {
+	size:     UVec2,
+	settings: TextureSettings,
+	layers:   u32, // Only > 1 for a texture_array
+}
+
+TextureTile :: struct {
+	handle: TextureHandle,
+	uv:     Aabb,
 }
 
 texture_from_image_path :: proc(
@@ -97,7 +108,7 @@ texture_as_image_copy :: proc(texture: ^Texture) -> wgpu.ImageCopyTexture {
 	}
 }
 
-texture_create_1px_white :: proc(device: wgpu.Device, queue: wgpu.Queue) -> Texture {
+_texture_create_1px_white :: proc(device: wgpu.Device, queue: wgpu.Queue) -> Texture {
 	texture := texture_create(device, {1, 1}, DEFAULT_TEXTURESETTINGS)
 	block_size: u32 = 4
 	image_copy := texture_as_image_copy(&texture)
@@ -126,8 +137,8 @@ texture_create :: proc(
 	texture: Texture,
 ) {
 	assert(wgpu.TextureUsage.TextureBinding in settings.usage)
-	texture.settings = settings
-	texture.size = size
+
+	texture.info = TextureInfo{size, settings, 1}
 	descriptor := wgpu.TextureDescriptor {
 		usage = settings.usage,
 		dimension = ._2D,
@@ -136,7 +147,7 @@ texture_create :: proc(
 		mipLevelCount = 1,
 		sampleCount = 1,
 		viewFormatCount = 1,
-		viewFormats = &texture.settings.format,
+		viewFormats = &texture.info.settings.format,
 	}
 	texture.texture = wgpu.DeviceCreateTexture(device, &descriptor)
 
@@ -215,21 +226,6 @@ rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayo
 }
 
 
-TextureTile :: struct {
-	texture: ^Texture,
-	uv:      Aabb,
-}
-
-TextureArray :: struct {
-	settings:   TextureSettings,
-	size:       UVec2,
-	layers:     u32,
-	texture:    wgpu.Texture,
-	view:       wgpu.TextureView,
-	sampler:    wgpu.Sampler,
-	bind_group: wgpu.BindGroup,
-}
-
 rgba_texture_array_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
 	@(static)layout: wgpu.BindGroupLayout
 	if layout == nil {
@@ -266,12 +262,10 @@ texture_array_create :: proc(
 	layers: u32,
 	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
 ) -> (
-	texture_array: TextureArray,
+	array: Texture,
 ) {
 	assert(wgpu.TextureUsage.TextureBinding in settings.usage)
-	texture_array.settings = settings
-	texture_array.size = size
-	texture_array.layers = layers
+	array.info = TextureInfo{size, settings, layers}
 	descriptor := wgpu.TextureDescriptor {
 		usage = settings.usage,
 		dimension = ._2D,
@@ -280,9 +274,9 @@ texture_array_create :: proc(
 		mipLevelCount = 1,
 		sampleCount = 1,
 		viewFormatCount = 1,
-		viewFormats = &texture_array.settings.format,
+		viewFormats = &array.info.settings.format,
 	}
-	texture_array.texture = wgpu.DeviceCreateTexture(device, &descriptor)
+	array.texture = wgpu.DeviceCreateTexture(device, &descriptor)
 	texture_view_descriptor := wgpu.TextureViewDescriptor {
 		format          = settings.format,
 		dimension       = ._2DArray,
@@ -292,7 +286,7 @@ texture_array_create :: proc(
 		arrayLayerCount = layers,
 		aspect          = .All,
 	}
-	texture_array.view = wgpu.TextureCreateView(texture_array.texture, &texture_view_descriptor)
+	array.view = wgpu.TextureCreateView(array.texture, &texture_view_descriptor)
 
 	sampler_descriptor := wgpu.SamplerDescriptor {
 		addressModeU  = settings.address_mode,
@@ -304,27 +298,19 @@ texture_array_create :: proc(
 		maxAnisotropy = 1,
 		// ...
 	}
-	texture_array.sampler = wgpu.DeviceCreateSampler(device, &sampler_descriptor)
+	array.sampler = wgpu.DeviceCreateSampler(device, &sampler_descriptor)
 
 	bind_group_descriptor_entries := [?]wgpu.BindGroupEntry {
-		wgpu.BindGroupEntry{binding = 0, textureView = texture_array.view},
-		wgpu.BindGroupEntry{binding = 1, sampler = texture_array.sampler},
+		wgpu.BindGroupEntry{binding = 0, textureView = array.view},
+		wgpu.BindGroupEntry{binding = 1, sampler = array.sampler},
 	}
 	bind_group_descriptor := wgpu.BindGroupDescriptor {
 		layout     = rgba_texture_array_bind_group_layout_cached(device),
 		entryCount = uint(len(bind_group_descriptor_entries)),
 		entries    = &bind_group_descriptor_entries[0],
 	}
-	texture_array.bind_group = wgpu.DeviceCreateBindGroup(device, &bind_group_descriptor)
+	array.bind_group = wgpu.DeviceCreateBindGroup(device, &bind_group_descriptor)
 	return
-}
-
-
-texture_array_destroy :: proc(texture_array: ^TextureArray) {
-	wgpu.BindGroupRelease(texture_array.bind_group)
-	wgpu.SamplerRelease(texture_array.sampler)
-	wgpu.TextureViewRelease(texture_array.view)
-	wgpu.TextureRelease(texture_array.texture)
 }
 
 texture_array_from_image_paths :: proc(
@@ -333,8 +319,8 @@ texture_array_from_image_paths :: proc(
 	paths: []string,
 	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
 ) -> (
-	texture_array: TextureArray,
-	error: string,
+	array: Texture,
+	error: Error,
 ) {
 	images := make([dynamic]^image.Image)
 	defer {delete(images)}
@@ -370,7 +356,7 @@ texture_array_from_image_paths :: proc(
 		}
 		append(&images, img)
 	}
-	texture_array = texture_array_from_images(device, queue, images[:], settings)
+	array = texture_array_from_images(device, queue, images[:], settings)
 	return
 }
 
@@ -381,7 +367,7 @@ texture_array_from_images :: proc(
 	images: []^image.Image,
 	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
 ) -> (
-	texture_array: TextureArray,
+	array: Texture,
 ) {
 	assert(len(images) > 0)
 
@@ -393,7 +379,7 @@ texture_array_from_images :: proc(
 	}
 	size := UVec2{u32(width), u32(height)}
 	layers := u32(len(images))
-	texture_array = texture_array_create(device, size, layers, settings)
+	array = texture_array_create(device, size, layers, settings)
 
 	assert(settings.format == IMAGE_FORMAT)
 	block_size: u32 = 4
@@ -407,7 +393,7 @@ texture_array_from_images :: proc(
 	}
 	for img, i in images {
 		image_copy := wgpu.ImageCopyTexture {
-			texture  = texture_array.texture,
+			texture  = array.texture,
 			mipLevel = 0,
 			origin   = {0, 0, u32(i)},
 			aspect   = .All,

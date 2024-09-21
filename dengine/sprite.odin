@@ -22,10 +22,10 @@ SpriteInstance :: struct {
 }
 
 SpriteBatch :: struct {
-	texture:   ^Texture,
+	texture:   TextureHandle,
 	start_idx: int,
 	end_idx:   int,
-	key:       u64,
+	key:       u32,
 }
 
 @(private)
@@ -55,7 +55,7 @@ _sort_and_batch_sprites :: proc(
 		SpriteBatch {
 			start_idx = 0,
 			end_idx = 0,
-			texture = sprites[0].texture.texture,
+			texture = sprites[0].texture.handle,
 			key = _sprite_batch_key(&sprites[0]),
 		},
 	)
@@ -69,7 +69,7 @@ _sort_and_batch_sprites :: proc(
 				SpriteBatch {
 					start_idx = len(instances),
 					end_idx = 0,
-					texture = sprite.texture.texture,
+					texture = sprite.texture.handle,
 					key = sprite_key,
 				},
 			)
@@ -89,8 +89,8 @@ _sort_and_batch_sprites :: proc(
 }
 
 @(private)
-_sprite_batch_key :: #force_inline proc(sprite: ^Sprite) -> u64 {
-	return u64(uintptr(sprite.texture.texture))
+_sprite_batch_key :: #force_inline proc(sprite: ^Sprite) -> u32 {
+	return u32(sprite.texture.handle)
 }
 
 SpriteRenderer :: struct {
@@ -111,6 +111,7 @@ sprite_renderer_render :: proc(
 	rend: ^SpriteRenderer,
 	render_pass: wgpu.RenderPassEncoder,
 	globals_uniform_bind_group: wgpu.BindGroup,
+	assets: EngineAssets,
 ) {
 
 	if len(rend.batches) == 0 {
@@ -126,7 +127,8 @@ sprite_renderer_render :: proc(
 		rend.instance_buffer.size,
 	)
 	for batch in rend.batches {
-		wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, batch.texture.bind_group)
+		texture_bind_group := assets_get_texture_bind_group(assets, batch.texture)
+		wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, texture_bind_group)
 		wgpu.RenderPassEncoderDraw(
 			render_pass,
 			4,

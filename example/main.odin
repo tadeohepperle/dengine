@@ -11,7 +11,6 @@ import "core:time"
 Vec2 :: [2]f32
 Color :: [4]f32
 
-
 recorded_dt: [dynamic]f32
 
 main :: proc() {
@@ -26,10 +25,7 @@ main :: proc() {
 		"./assets/t_2.png",
 		"./assets/t_3.png",
 	}
-	terrain_textures, terrain_textures_err := d.load_texture_array(terrain_textures_paths[:])
-	assert(terrain_textures_err == "")
-
-	d.SCENE.terrain_textures = &terrain_textures
+	d.SCENE.terrain_textures = d.load_texture_array(terrain_textures_paths[:])
 
 	terrain_mesh := d.terrain_mesh_create(
 		{
@@ -43,10 +39,8 @@ main :: proc() {
 	fmt.println(terrain_mesh)
 
 
-	corn, corn_err := d.load_texture_as_tile("./assets/corn.png")
-	sprite, sprite_err := d.load_texture_as_tile("./assets/can.png")
-	assert(corn_err == nil)
-	assert(sprite_err == nil)
+	corn := d.load_texture_tile("./assets/corn.png")
+	sprite := d.load_texture_tile("./assets/can.png")
 
 
 	player_pos := Vec2{0, 0}
@@ -62,7 +56,7 @@ main :: proc() {
 	color3: Color = d.Color_Chartreuse
 	text_align: d.TextAlign
 
-	for d.frame() {
+	for d.next_frame() {
 		append(&recorded_dt, d.ENGINE.delta_secs * 1000.0)
 		d.start_window("Example Window")
 		btn_text := "Hold to Record"
@@ -99,10 +93,10 @@ main :: proc() {
 		d.draw_terrain_mesh(&terrain_mesh)
 
 		for y in -5 ..= 5 {
-			d.gizmos_line(Vec2{-5, f32(y)}, Vec2{5, f32(y)}, color2)
+			d.draw_gizmos_line(Vec2{-5, f32(y)}, Vec2{5, f32(y)}, color2)
 		}
 		for x in -5 ..= 5 {
-			d.gizmos_line(Vec2{f32(x), -5}, Vec2{f32(x), 5}, color2)
+			d.draw_gizmos_line(Vec2{f32(x), -5}, Vec2{f32(x), 5}, color2)
 		}
 
 		d.draw_sprite(
@@ -132,7 +126,7 @@ main :: proc() {
 		directions := [?]Vec2{{-1, 0}, {1, 0}, {0, 1}, {0, -1}}
 		move: Vec2
 		for k, i in keys {
-			if d.key_pressed(k) {
+			if d.is_key_pressed(k) {
 				move += directions[i]
 			}
 		}
@@ -245,9 +239,6 @@ snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 }
 
 snake_draw :: proc(snake: ^Snake) {
-	white := d.TextureTile {
-		texture = &d.ENGINE.ui_renderer.white_px_texture,
-	}
 	// for p in snake.vertices {
 	// 	d.draw_sprite(
 	// 		d.Sprite {

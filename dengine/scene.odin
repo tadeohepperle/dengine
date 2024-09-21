@@ -5,7 +5,7 @@ Scene :: struct {
 	camera:               Camera,
 	sprites:              [dynamic]Sprite,
 	terrain_meshes:       [dynamic]^TerrainMesh,
-	terrain_textures:     ^TextureArray,
+	terrain_textures:     TextureArrayHandle,
 	colliders:            [dynamic]Collider,
 	last_frame_colliders: [dynamic]Collider,
 }

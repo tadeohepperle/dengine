@@ -97,14 +97,17 @@ terrain_renderer_render :: proc(
 	render_pass: wgpu.RenderPassEncoder,
 	globals_uniform_bind_group: wgpu.BindGroup,
 	meshes: []^TerrainMesh,
-	texture_array: ^TextureArray,
+	handle: TextureArrayHandle,
+	assets: EngineAssets,
 ) {
-	if len(meshes) == 0 || texture_array == nil {
+	if len(meshes) == 0 || handle == 0 {
 		return
 	}
 	wgpu.RenderPassEncoderSetPipeline(render_pass, rend.pipeline.pipeline)
 	wgpu.RenderPassEncoderSetBindGroup(render_pass, 0, globals_uniform_bind_group)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, texture_array.bind_group)
+
+	texture_array_bindgroup := assets_get_texture_array_bind_group(assets, handle)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, texture_array_bindgroup)
 	for mesh in meshes {
 		wgpu.RenderPassEncoderSetVertexBuffer(
 			render_pass,

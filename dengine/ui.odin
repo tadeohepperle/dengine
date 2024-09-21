@@ -159,20 +159,22 @@ UiBatches :: struct {
 UiBatch :: struct {
 	start_idx:  int,
 	end_idx:    int,
-	kind:       PrimitiveKind,
-	texture:    ^Texture,
+	kind:       BatchKind,
+	handle:     TextureOrFontHandle,
 	clipped_to: Aabb,
 }
 
-PrimitiveKind :: enum {
+TextureOrFontHandle :: distinct (u32)
+
+BatchKind :: enum {
 	Rect,
 	Glyph,
 }
 
 PreBatch :: struct {
 	end_idx: int,
-	kind:    PrimitiveKind,
-	texture: ^Texture,
+	kind:    BatchKind,
+	handle:  TextureOrFontHandle,
 }
 
 Primitives :: struct {
@@ -221,7 +223,7 @@ UiMemory :: struct {
 	elements_len:            int,
 	parent_stack:            [MAX_PARENT_LEVELS]Parent, // the last item in this stack is the index of the current parent
 	parent_stack_len:        int,
-	default_font:            Font,
+	default_font:            FontHandle,
 	default_font_color:      Color,
 	default_font_size:       f32,
 	cache:                   ^UiCache,
@@ -323,7 +325,7 @@ BorderWidth :: struct {
 
 Text :: struct {
 	str:                  string,
-	font:                 ^Font,
+	font:                 FontHandle,
 	color:                Color,
 	font_size:            f32,
 	shadow:               f32,
@@ -409,14 +411,14 @@ clear_UI_MEMORY :: proc() {
 	UI_MEMORY.parent_stack_len = 0
 }
 
-ui_end_frame :: proc(batches: ^UiBatches, max_size: Vec2, delta_secs: f32) {
+ui_end_frame :: proc(batches: ^UiBatches, max_size: Vec2, delta_secs: f32, assets: EngineAssets) {
 	assert(UI_MEMORY.parent_stack_len == 0, "make sure to call end_div() for every start_div()!")
 
 	if UI_MEMORY.cache == nil {
 		panic("Cannot end frame when cache == nil")
 	}
 
-	layout(max_size)
+	layout(max_size, assets)
 	update_ui_cache(UI_MEMORY.cache, delta_secs)
 	build_ui_batches(batches)
 	return
@@ -592,15 +594,6 @@ end_div :: proc() {
 }
 
 text_from_struct :: proc(text: Text, id: UiId = 0) {
-	text := text
-	if text.font == nil {
-		if default_font_is_not_set() {
-			panic(
-				"No default font set! Use set_default_font or profive a font in the Text struct.",
-			)
-		}
-		text.font = &UI_MEMORY.default_font
-	}
 	_pre_add_ui_element()
 	UI_MEMORY.elements[UI_MEMORY.elements_len] = UiElement {
 		variant = TextWithComputed {
@@ -620,17 +613,10 @@ text :: proc {
 }
 
 text_from_string :: proc(text: string, id: UiId = 0) {
-
-	if default_font_is_not_set() {
-		panic(
-			"No default font set! Use set_default_font. Cannot create text element from string alone.",
-		)
-	}
-
 	text_from_struct(
 		Text {
 			str = text,
-			font = &UI_MEMORY.default_font,
+			font = DEFAULT_FONT,
 			color = UI_MEMORY.default_font_color,
 			font_size = UI_MEMORY.default_font_size,
 			shadow = 0.0,
@@ -640,21 +626,16 @@ text_from_string :: proc(text: string, id: UiId = 0) {
 
 }
 
-
-default_font_is_not_set :: #force_inline proc() -> bool {
-	return &UI_MEMORY.default_font.texture == nil
-}
-
 // layout pass over the UI_MEMORY, after this, for each element, 
 // the elements_computed buffer should contain the correct values
 @(private)
-layout :: proc(max_size: Vec2) {
+layout :: proc(max_size: Vec2, assets: EngineAssets) {
 	initial_pos := Vec2{0, 0}
 	i: int = 0
 	z: UiZIndex = 0
 	for i < UI_MEMORY.elements_len {
 		element := &UI_MEMORY.elements[i]
-		skipped := set_size(i, element, max_size, z)
+		skipped := set_size(i, element, max_size, z, assets)
 		set_position(i, element, initial_pos)
 		i += skipped
 	}
@@ -666,6 +647,7 @@ set_size :: proc(
 	element: ^UiElement,
 	max_size: Vec2,
 	parent_z: UiZIndex,
+	assets: EngineAssets,
 ) -> (
 	skipped: int,
 ) {
@@ -673,9 +655,9 @@ set_size :: proc(
 	switch &var in element.variant {
 	case DivWithComputed:
 		element.z += var.z_bias
-		element.size, skipped = set_size_for_div(i, &var, max_size, element.z)
+		element.size, skipped = set_size_for_div(i, &var, max_size, element.z, assets)
 	case TextWithComputed:
-		element.size = set_size_for_text(&var, max_size)
+		element.size = set_size_for_text(&var, max_size, assets)
 		skipped = 1
 		if element.id != 0 {
 			UI_MEMORY.text_ids_to_tmp_layouts[element.id] = var.tmp_text_layout_ctx
@@ -703,10 +685,16 @@ set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
 }
 
 @(private)
-set_size_for_text :: proc(text: ^TextWithComputed, max_size: Vec2) -> (text_size: Vec2) {
+set_size_for_text :: proc(
+	text: ^TextWithComputed,
+	max_size: Vec2,
+	assets: EngineAssets,
+) -> (
+	text_size: Vec2,
+) {
 	// if text.str == "" {return Vec2{}}
 	ctx := tmp_text_layout_ctx(max_size, 0.0, text.align)
-	layout_text_in_text_ctx(ctx, text)
+	layout_text_in_text_ctx(ctx, text, assets)
 	text_size = finalize_text_layout_ctx_and_return_size(ctx)
 	text.tmp_text_layout_ctx = ctx
 	return
@@ -718,6 +706,7 @@ set_size_for_div :: proc(
 	div: ^DivWithComputed,
 	max_size: Vec2,
 	z_of_div: UiZIndex,
+	assets: EngineAssets,
 ) -> (
 	div_size: Vec2,
 	skipped: int,
@@ -758,19 +747,19 @@ set_size_for_div :: proc(
 	if width_fixed {
 		if height_fixed {
 			max_size := div_size - Vec2{pad_x, pad_y}
-			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div, assets)
 		} else {
 			max_size := Vec2{div_size.x - pad_x, max_size.y}
-			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div, assets)
 			div_size.y = div.content_size.y + pad_y
 		}
 	} else {
 		if height_fixed {
 			max_size := Vec2{max_size.x, div_size.y - pad_y}
-			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div, assets)
 			div_size.x = div.content_size.x + pad_x
 		} else {
-			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div)
+			skipped = set_child_sizes_for_div(i, div, max_size, z_of_div, assets)
 			div_size = Vec2{div.content_size.x + pad_x, div.content_size.y + pad_y}
 		}
 	}
@@ -795,6 +784,7 @@ set_child_sizes_for_div :: proc(
 	div: ^DivWithComputed,
 	max_size: Vec2,
 	z_of_div: UiZIndex,
+	assets: EngineAssets,
 ) -> (
 	skipped: int,
 ) {
@@ -807,7 +797,7 @@ set_child_sizes_for_div :: proc(
 		for _ in 0 ..< div.child_count {
 			c_idx := i + skipped
 			element := &UI_MEMORY.elements[c_idx]
-			ch_skip := layout_element_in_text_ctx(ctx, c_idx, element, z_of_div)
+			ch_skip := layout_element_in_text_ctx(ctx, c_idx, element, z_of_div, assets)
 			skipped += ch_skip
 		}
 		div.content_size = finalize_text_layout_ctx_and_return_size(ctx)
@@ -817,7 +807,7 @@ set_child_sizes_for_div :: proc(
 		for _ in 0 ..< div.child_count {
 			c_idx := i + skipped
 			ch := &UI_MEMORY.elements[c_idx]
-			ch_skip := set_size(c_idx, ch, max_size, z_of_div)
+			ch_skip := set_size(c_idx, ch, max_size, z_of_div, assets)
 			skipped += ch_skip
 			if !absolute_positioning(ch) {
 				if axis_is_x {
@@ -849,6 +839,7 @@ layout_element_in_text_ctx :: proc(
 	i: int,
 	element: ^UiElement,
 	parent_z: UiZIndex,
+	assets: EngineAssets,
 ) -> (
 	skipped: int,
 ) {
@@ -856,9 +847,15 @@ layout_element_in_text_ctx :: proc(
 	switch &var in element.variant {
 	case DivWithComputed:
 		element.z += var.z_bias
-		element.size, element.pos, skipped = layout_div_in_text_ctx(ctx, i, &var, element.z)
+		element.size, element.pos, skipped = layout_div_in_text_ctx(
+			ctx,
+			i,
+			&var,
+			element.z,
+			assets,
+		)
 	case TextWithComputed:
-		layout_text_in_text_ctx(ctx, &var)
+		layout_text_in_text_ctx(ctx, &var, assets)
 		skipped = 1
 	case CustomUiElement:
 		panic("Custom Ui elements in text not allowed yet.")
@@ -867,21 +864,25 @@ layout_element_in_text_ctx :: proc(
 	return
 }
 
-layout_text_in_text_ctx :: proc(ctx: ^TextLayoutCtx, text: ^TextWithComputed) {
-	font := text.font
-	assert(font != nil)
+layout_text_in_text_ctx :: proc(
+	ctx: ^TextLayoutCtx,
+	text: ^TextWithComputed,
+	assets: EngineAssets,
+) {
+
+
+	font := assets_get_font(assets, text.font)
 	font_size := text.font_size
 	scale := font_size / f32(font.rasterization_size)
 	ctx.current_line.metrics = merge_line_metrics_to_max(
 		ctx.current_line.metrics,
 		scale_line_metrics(font.line_metrics, scale),
 	)
-	ctx.current_font = text.font
 	text.glyphs_start_idx = UI_MEMORY.glyphs_len
 	resize(&ctx.byte_advances, len(ctx.byte_advances) + len(text.str))
 	for ch, ch_byte_idx in text.str {
 		ctx.last_byte_idx = ch_byte_idx
-		g, ok := ctx.current_font.glyphs[ch]
+		g, ok := font.glyphs[ch]
 		if !ok {
 			fmt.panicf("Character %s not rastierized yet!", ch)
 		}
@@ -956,12 +957,13 @@ layout_div_in_text_ctx :: proc(
 	i: int,
 	div: ^DivWithComputed,
 	z_of_div: UiZIndex,
+	assets: EngineAssets,
 ) -> (
 	div_size: Vec2,
 	div_pos: Vec2,
 	skipped: int,
 ) {
-	div_size, skipped = set_size_for_div(i, div, ctx.max_size, z_of_div)
+	div_size, skipped = set_size_for_div(i, div, ctx.max_size, z_of_div, assets)
 	line_break_needed := ctx.current_line.advance + div_size.x > ctx.max_width
 	if line_break_needed {
 		break_line(ctx)
@@ -1089,7 +1091,6 @@ TextLayoutCtx :: struct {
 	glyphs_end_idx:               int,
 	lines:                        [dynamic]LineRun,
 	current_line:                 LineRun,
-	current_font:                 ^Font,
 	additional_line_gap:          f32,
 	// save for the last few glyphs that are connected without whitespace in-between their adavances in x direction.
 	last_non_whitespace_advances: [dynamic]XOffsetAndAdvance,
@@ -1296,17 +1297,16 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 		pre: ^PreBatch,
 		current_clipping_rect: Aabb,
 	) -> bool {
-
 		return(
 			batch.kind == pre.kind &&
-			(batch.texture == nil || pre.texture == nil || pre.texture == batch.texture) &&
+			(batch.handle == 0 || pre.handle == 0 || pre.handle == batch.handle) &&
 			(batch.clipped_to == current_clipping_rect) \
 		)
 	}
 
 	set_rect_batch_texture_if_nil_before :: #force_inline proc(batch: ^UiBatch, pre: ^PreBatch) {
-		if batch.kind == .Rect && pre.kind == .Rect && batch.texture == nil {
-			batch.texture = pre.texture
+		if batch.kind == .Rect && pre.kind == .Rect && batch.handle == 0 {
+			batch.handle = pre.handle
 		}
 	}
 
@@ -1442,7 +1442,7 @@ build_ui_batches :: proc(batches: ^UiBatches) {
 							start_idx  = start_idx,
 							end_idx    = start_idx,
 							kind       = next.kind,
-							texture    = next.texture,
+							handle     = next.handle,
 							clipped_to = current_clipping.rect,
 						}
 					}
@@ -1507,7 +1507,7 @@ add_rect :: #force_inline proc(
 	start_v := u32(len(vertices))
 
 	flags_all: u32 = 0
-	if texture.texture != nil {
+	if texture.handle != 0 {
 		flags_all |= UI_VERTEX_FLAG_TEXTURED
 	}
 
@@ -1545,7 +1545,11 @@ add_rect :: #force_inline proc(
 
 	append(
 		pre_batches,
-		PreBatch{end_idx = len(primitives.indices), kind = .Rect, texture = texture.texture},
+		PreBatch {
+			end_idx = len(primitives.indices),
+			kind = .Rect,
+			handle = TextureOrFontHandle(texture.handle),
+		},
 	)
 }
 
@@ -1566,7 +1570,7 @@ add_primitives :: #force_inline proc(
 		start_v := u32(len(vertices))
 
 		flags_all: u32 = 0
-		if e.texture.texture != nil {
+		if e.texture.handle != 0 {
 			flags_all |= UI_VERTEX_FLAG_TEXTURED
 		}
 
@@ -1615,7 +1619,7 @@ add_primitives :: #force_inline proc(
 			PreBatch {
 				end_idx = len(primitives.glyphs_instances),
 				kind = .Glyph,
-				texture = e.font.texture,
+				handle = TextureOrFontHandle(e.font),
 			},
 		)
 	case CustomUiElement:
@@ -1640,7 +1644,6 @@ UiRenderer :: struct {
 	index_buffer:          DynamicBuffer(u32),
 	glyph_instance_buffer: DynamicBuffer(UiGlyphInstance),
 	cache:                 UiCache,
-	white_px_texture:      Texture,
 }
 
 ui_renderer_render :: proc(
@@ -1648,6 +1651,7 @@ ui_renderer_render :: proc(
 	render_pass: wgpu.RenderPassEncoder,
 	globals_bind_group: wgpu.BindGroup,
 	screen_size: UVec2,
+	assets: EngineAssets,
 ) {
 	screen_size_f32 := Vec2{f32(screen_size.x), f32(screen_size.y)}
 	NO_CLIPPING_RECT :: Aabb{{0, 0}, {0, 0}}
@@ -1714,14 +1718,16 @@ ui_renderer_render :: proc(
 			}
 		}
 
-		batch_texture := batch.texture
-		if batch_texture == nil {
-			batch_texture = &rend.white_px_texture
-		}
-		wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, batch_texture.bind_group)
 
 		switch batch.kind {
 		case .Rect:
+			if batch.handle != 0 {
+				texture_bind_group := assets_get_texture_bind_group(
+					assets,
+					TextureHandle(batch.handle),
+				)
+				wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, texture_bind_group)
+			}
 			index_count := u32(batch.end_idx - batch.start_idx)
 			wgpu.RenderPassEncoderDrawIndexed(
 				render_pass,
@@ -1732,6 +1738,11 @@ ui_renderer_render :: proc(
 				0,
 			)
 		case .Glyph:
+			font_texture_bind_group := assets_get_font_texture_bind_group(
+				assets,
+				FontHandle(batch.handle),
+			)
+			wgpu.RenderPassEncoderSetBindGroup(render_pass, 1, font_texture_bind_group)
 			instance_count := u32(batch.end_idx - batch.start_idx)
 			wgpu.RenderPassEncoderDraw(render_pass, 4, instance_count, 0, u32(batch.start_idx))
 		}
@@ -1758,8 +1769,12 @@ ui_renderer_start_frame :: proc(rend: ^UiRenderer, screen_size: Vec2, input: ^In
 	ui_start_frame(cache)
 }
 
-ui_renderer_end_frame_and_prepare_buffers :: proc(rend: ^UiRenderer, delta_secs: f32) {
-	ui_end_frame(&rend.batches, rend.cache.layout_extent, delta_secs)
+ui_renderer_end_frame_and_prepare_buffers :: proc(
+	rend: ^UiRenderer,
+	delta_secs: f32,
+	assets: EngineAssets,
+) {
+	ui_end_frame(&rend.batches, rend.cache.layout_extent, delta_secs, assets)
 	dynamic_buffer_write(
 		&rend.vertex_buffer,
 		rend.batches.primitives.vertices[:],
@@ -1786,13 +1801,9 @@ ui_renderer_create :: proc(
 	queue: wgpu.Queue,
 	reg: ^ShaderRegistry,
 	globals_layout: wgpu.BindGroupLayout,
-	default_font_path: string,
 	default_font_color: Color,
 	default_font_size: f32,
 ) {
-	if default_font_path == "" {
-		panic("No default font specified in engine settings!")
-	}
 	rend.device = device
 	rend.queue = queue
 	rend.rect_pipeline.config = ui_rect_pipeline_config(device, globals_layout)
@@ -1800,19 +1811,13 @@ ui_renderer_create :: proc(
 
 	rend.glyph_pipeline.config = ui_glyph_pipeline_config(device, globals_layout)
 	render_pipeline_create_panic(&rend.glyph_pipeline, device, reg)
-	font, err := font_create(default_font_path, device, queue)
-	if err != nil {
-		fmt.panicf("Could not load font from: %s, reason: %s", default_font_path, err)
-	}
-	UI_MEMORY.default_font = font
+	UI_MEMORY.default_font = 0
 	UI_MEMORY.default_font_color = default_font_color
 	UI_MEMORY.default_font_size = default_font_size
 
 	rend.vertex_buffer.usage = {.Vertex}
 	rend.index_buffer.usage = {.Index}
 	rend.glyph_instance_buffer.usage = {.Vertex}
-
-	rend.white_px_texture = texture_create_1px_white(device, queue)
 
 	return
 }
@@ -1885,7 +1890,6 @@ ui_renderer_destroy :: proc(rend: ^UiRenderer) {
 	dynamic_buffer_destroy(&rend.vertex_buffer)
 	dynamic_buffer_destroy(&rend.index_buffer)
 	dynamic_buffer_destroy(&rend.glyph_instance_buffer)
-	font_destroy(&UI_MEMORY.default_font)
 }
 
 ui_batches_destroy :: proc(batches: ^UiBatches) {

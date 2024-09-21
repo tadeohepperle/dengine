@@ -19,10 +19,10 @@ draw_grid :: proc(grid_size: int = 1, color: d.Color = d.Color_White) {
 	y_max := int(max.y) + grid_size - (int(max.y) %% grid_size)
 
 	for x := x_min; x <= x_max; x += grid_size {
-		d.gizmos_line(d.Vec2{f32(x), f32(y_min)}, d.Vec2{f32(x), f32(y_max)}, color)
+		d.draw_gizmos_line(d.Vec2{f32(x), f32(y_min)}, d.Vec2{f32(x), f32(y_max)}, color)
 	}
 
 	for y := y_min; y <= y_max; y += grid_size {
-		d.gizmos_line(d.Vec2{f32(x_min), f32(y)}, d.Vec2{f32(x_max), f32(y)}, color)
+		d.draw_gizmos_line(d.Vec2{f32(x_min), f32(y)}, d.Vec2{f32(x_max), f32(y)}, color)
 	}
 }

@@ -100,7 +100,9 @@ Engine :: struct {
 	time_query_set:            wgpu.QuerySet,
 	time_query_resolve_buffer: wgpu.Buffer,
 	time_query_result_buffer:  wgpu.Buffer,
+	assets:                    EngineAssets,
 }
+
 
 cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
 	p := (cursor_pos - (screen_size / 2)) * 2.0 / screen_size.y * camera.y_height
@@ -148,6 +150,8 @@ engine_create :: proc(
 	uniform_buffer_create(&globals_uniform, device)
 	engine.tonemapping_pipeline.config = tonemapping_pipeline_config(device)
 	render_pipeline_create_panic(&tonemapping_pipeline, device, &shader_registry)
+
+	assets_create(&engine.assets, engine_settings.default_font_path, device, queue)
 	bloom_renderer_create(
 		&engine.bloom_renderer,
 		device,
@@ -183,7 +187,6 @@ engine_create :: proc(
 		engine.queue,
 		&engine.shader_registry,
 		engine.globals_uniform.bind_group_layout,
-		engine.settings.default_font_path,
 		engine.settings.default_font_color,
 		engine.settings.default_font_size,
 	)
@@ -205,10 +208,10 @@ engine_destroy :: proc(engine: ^Engine) {
 	color_mesh_renderer_destroy(&engine.color_mesh_renderer)
 	ui_renderer_destroy(&engine.ui_renderer)
 	terrain_renderer_destroy(&engine.terrain_renderer)
+	assets_destroy(&engine.assets)
 	wgpu.QueueRelease(engine.queue)
 	wgpu.DeviceDestroy(engine.device)
 	wgpu.InstanceRelease(engine.instance)
-
 	delete(engine.time_frame_sections)
 }
 
@@ -434,7 +437,11 @@ _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 	sprite_renderer_prepare(&engine.sprite_renderer, scene.sprites[:])
 	color_mesh_renderer_prepare(&engine.color_mesh_renderer)
 	gizmos_renderer_prepare(&engine.gizmos_renderer, scene.sprites[:])
-	ui_renderer_end_frame_and_prepare_buffers(&engine.ui_renderer, engine.delta_secs)
+	ui_renderer_end_frame_and_prepare_buffers(
+		&engine.ui_renderer,
+		engine.delta_secs,
+		engine.assets,
+	)
 	frame_section_end(engine, .Frame_End_Prepare)
 }
 
@@ -508,10 +515,16 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 		engine.globals_uniform.bind_group,
 		scene.terrain_meshes[:],
 		scene.terrain_textures,
+		engine.assets,
 	)
 
 
-	sprite_renderer_render(&engine.sprite_renderer, hdr_pass, engine.globals_uniform.bind_group)
+	sprite_renderer_render(
+		&engine.sprite_renderer,
+		hdr_pass,
+		engine.globals_uniform.bind_group,
+		engine.assets,
+	)
 	color_mesh_renderer_render(
 		&engine.color_mesh_renderer,
 		hdr_pass,
@@ -528,6 +541,7 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 		hdr_pass,
 		engine.globals_uniform.bind_group,
 		engine.screen_size,
+		engine.assets,
 	)
 	gizmos_renderer_render(
 		&engine.gizmos_renderer,

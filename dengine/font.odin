@@ -15,16 +15,14 @@ Font :: struct {
 	line_metrics:       LineMetrics,
 	name:               string,
 	glyphs:             map[rune]Glyph,
-	texture:            ^Texture,
+	texture:            TextureHandle,
 }
-
 LineMetrics :: struct {
 	ascent:        f32,
 	descent:       f32,
 	line_gap:      f32,
 	new_line_size: f32,
 }
-
 Glyph :: struct {
 	xmin:           f32,
 	ymin:           f32,
@@ -35,8 +33,6 @@ Glyph :: struct {
 	uv_min:         Vec2,
 	uv_max:         Vec2,
 }
-
-
 FontLoadError :: union {
 	string,
 	json.Unmarshal_Error,
@@ -44,19 +40,18 @@ FontLoadError :: union {
 }
 
 font_destroy :: proc(font: ^Font) {
-	texture_destroy(font.texture)
 	delete(font.glyphs)
 	delete(font.name)
 }
 
-
 // this function expects to find a file at {path}.json and {path}.png, representing the fonts data and sdf glyphs
-font_create :: proc(
+_font_load_from_path :: proc(
 	path: string,
 	device: wgpu.Device,
 	queue: wgpu.Queue,
 ) -> (
 	font: Font,
+	font_texture: Texture,
 	error: FontLoadError,
 ) {
 	// read json:
@@ -84,8 +79,6 @@ font_create :: proc(
 	font.name = font_with_string_keys.name
 	font.glyphs = make_map(map[rune]Glyph, len(font_with_string_keys.glyphs))
 	for s, v in font_with_string_keys.glyphs {
-
-
 		for r, i in s {
 			font.glyphs[r] = v
 			if i != 0 {
@@ -98,13 +91,11 @@ font_create :: proc(
 
 	// read image: 
 	png_path := fmt.aprintf("%s.sdf_font.png", path, allocator = context.temp_allocator)
-	print(png_path)
-	tex_err: image.Error
-	font.texture = new(Texture)
-	font.texture^, tex_err = texture_from_image_path(device, queue, path = png_path)
+	tex_err: png.Error
+	font_texture, tex_err = texture_from_image_path(device, queue, path = png_path)
 	if tex_err != nil {
 		error = tex_err
 		return
 	}
-	return
+	return font, font_texture, nil
 }

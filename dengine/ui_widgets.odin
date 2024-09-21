@@ -735,10 +735,7 @@ color_gradient_rect :: proc(rect: ColorGradientRect, id: UiId = 0) {
 				append(&primitives.indices, idx_3)
 			}
 		}
-		append(
-			pre_batches,
-			PreBatch{kind = .Rect, end_idx = len(primitives.indices), texture = nil},
-		)
+		append(pre_batches, PreBatch{kind = .Rect, end_idx = len(primitives.indices), handle = 0})
 	}
 
 	custom_ui_element(rect, set_size, add_elements)
@@ -787,8 +784,8 @@ text_edit :: proc(
 			}
 		}
 
-		ctrl_pressed := input_pressed(input, .LEFT_CONTROL)
-		shift_pressed := input_pressed(input, .LEFT_SHIFT)
+		is_ctrl_pressed := input_pressed(input, .LEFT_CONTROL)
+		is_shift_pressed := input_pressed(input, .LEFT_SHIFT)
 
 		if input_just_pressed_or_repeated(input, .BACKSPACE) {
 			edit.delete_to(&g_state, .Left)
@@ -821,14 +818,14 @@ text_edit :: proc(
 			}
 		}
 		if input_just_pressed_or_repeated(input, .LEFT) {
-			if shift_pressed {
-				if ctrl_pressed {
+			if is_shift_pressed {
+				if is_ctrl_pressed {
 					edit.select_to(&g_state, .Word_Left)
 				} else {
 					edit.select_to(&g_state, .Left)
 				}
 			} else {
-				if ctrl_pressed {
+				if is_ctrl_pressed {
 					edit.move_to(&g_state, .Word_Left)
 				} else {
 					edit.move_to(&g_state, .Left)
@@ -837,14 +834,14 @@ text_edit :: proc(
 		}
 
 		if input_just_pressed_or_repeated(input, .RIGHT) {
-			if shift_pressed {
-				if ctrl_pressed {
+			if is_shift_pressed {
+				if is_ctrl_pressed {
 					edit.select_to(&g_state, .Word_Right)
 				} else {
 					edit.select_to(&g_state, .Right)
 				}
 			} else {
-				if ctrl_pressed {
+				if is_ctrl_pressed {
 					edit.move_to(&g_state, .Word_Right)
 				} else {
 					edit.move_to(&g_state, .Right)
