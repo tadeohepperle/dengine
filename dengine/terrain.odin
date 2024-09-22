@@ -3,7 +3,7 @@ package dengine
 import wgpu "vendor:wgpu"
 
 TerrainVertex :: struct {
-	pos:       Vec2, // per vertex
+	pos:       Vec3, // per vertex
 	indices:   UVec3, // per triangle (same for all vertices in each triangle)
 	weights:   Vec3, // per vertex
 	direction: Vec3, // per vertex (3 dimensions for seamless interpolation at triangles between 3 hexes)
@@ -135,7 +135,7 @@ terrain_pipeline_config :: proc(
 		vertex = {
 			ty_id = TerrainVertex,
 			attributes = {
-				{format = .Float32x2, offset = offset_of(TerrainVertex, pos)},
+				{format = .Float32x3, offset = offset_of(TerrainVertex, pos)},
 				{format = .Uint32x3, offset = offset_of(TerrainVertex, indices)},
 				{format = .Float32x3, offset = offset_of(TerrainVertex, weights)},
 				{format = .Float32x3, offset = offset_of(TerrainVertex, direction)},

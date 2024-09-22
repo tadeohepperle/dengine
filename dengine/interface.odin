@@ -154,7 +154,7 @@ draw_color_mesh :: proc {
 	draw_color_mesh_indexed_single_color,
 	draw_color_mesh_indexed,
 }
-draw_color_mesh_vertices_single_color :: proc(positions: []Vec2, color := Color_Red) {
+draw_color_mesh_vertices_single_color :: proc(positions: []Vec3, color := Color_Red) {
 	color_mesh_add_vertices_single_color(&ENGINE.color_mesh_renderer, positions, color)
 }
 draw_color_mesh_vertices :: proc(vertices: []ColorMeshVertex) {
@@ -164,7 +164,7 @@ draw_color_mesh_indexed :: proc(vertices: []ColorMeshVertex, indices: []u32) {
 	color_mesh_add_indexed(&ENGINE.color_mesh_renderer, vertices, indices)
 }
 draw_color_mesh_indexed_single_color :: proc(
-	positions: []Vec2,
+	positions: []Vec3,
 	indices: []u32,
 	color := Color_Red,
 ) {

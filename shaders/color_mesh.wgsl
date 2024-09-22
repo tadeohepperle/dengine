@@ -1,7 +1,7 @@
 #import globals.wgsl
 
 struct Vertex {
-    @location(0) pos:      vec2<f32>,
+    @location(0) pos:      vec3<f32>,
     @location(1) color:    vec4<f32>,
 }
 
@@ -13,7 +13,7 @@ struct VertexOutput{
 @vertex
 fn vs_main(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = world_pos_to_ndc(vec3<f32>(vertex.pos, 0.0));
+    out.clip_position = world_pos_to_ndc(vertex.pos);
     out.color = vertex.color;
     return out;
 }

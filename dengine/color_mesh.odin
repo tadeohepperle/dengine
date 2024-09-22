@@ -2,7 +2,7 @@ package dengine
 import wgpu "vendor:wgpu"
 
 ColorMeshVertex :: struct {
-	pos:   Vec2,
+	pos:   Vec3,
 	color: Color,
 }
 
@@ -89,7 +89,7 @@ color_mesh_pipeline_config :: proc(
 		vertex = {
 			ty_id = ColorMeshVertex,
 			attributes = {
-				{format = .Float32x2, offset = offset_of(ColorMeshVertex, pos)},
+				{format = .Float32x3, offset = offset_of(ColorMeshVertex, pos)},
 				{format = .Float32x4, offset = offset_of(ColorMeshVertex, color)},
 			},
 		},
@@ -111,7 +111,7 @@ color_mesh_add :: proc {
 
 color_mesh_add_vertices_single_color :: proc(
 	rend: ^ColorMeshRenderer,
-	positions: []Vec2,
+	positions: []Vec3,
 	color := Color_Red,
 ) {
 	v_count_before := u32(len(rend.vertices))
@@ -145,7 +145,7 @@ color_mesh_add_indexed :: proc(
 
 color_mesh_add_indexed_single_color :: proc(
 	rend: ^ColorMeshRenderer,
-	positions: []Vec2,
+	positions: []Vec3,
 	indices: []u32,
 	color := Color_Red,
 ) {

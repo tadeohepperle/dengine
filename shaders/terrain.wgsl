@@ -7,7 +7,7 @@ var t_terrain: texture_2d_array<f32>;
 var s_terrain: sampler;
 
 struct Vertex {
-    @location(0) pos:        vec2<f32>,
+    @location(0) pos:        vec3<f32>,
     @location(1) indices: vec3<u32>,
     @location(2) weights: vec3<f32>,
     @location(3) direction: vec3<f32>,
@@ -15,7 +15,7 @@ struct Vertex {
 
 struct VertexOutput{
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) pos:        vec2<f32>,
+    @location(0) pos:        vec3<f32>,
     @location(1) indices: vec3<u32>,
     @location(2) weights: vec3<f32>,
     @location(3) direction: vec3<f32>,
@@ -23,12 +23,9 @@ struct VertexOutput{
 
 @vertex
 fn vs_main(vertex: Vertex) -> VertexOutput {
-    var pos = vertex.pos;
-    // let n = perlinNoise2(pos *23.7) -0.5 ;
-    // pos += n * 0.1  ; 
     var out: VertexOutput;
-    out.clip_position = world_pos_to_ndc(vec3<f32>(pos.x, pos.y /1.0, 0.0));
-    out.pos = pos;
+    out.clip_position = world_pos_to_ndc(vertex.pos);
+    out.pos = vertex.pos;
     out.indices = vertex.indices;
     out.weights = vertex.weights;
     out.direction = vertex.direction;
@@ -43,7 +40,7 @@ const DIR_M = mat3x2<f32>(0.0,-1.0, SQRT_3_HALF, 0.5, -SQRT_3_HALF, 0.5);
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32>  {
-    let n = perlinNoise2(in.pos *0.7);
+    let n = perlinNoise2(in.pos.xy *0.7);
 
 
     
@@ -62,7 +59,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32>  {
     let max_i: u32 = select(select(0u, 1u, idx_b > idx_a),2u, idx_c > max(idx_b, idx_a));
 
    
-    let hex_dist = length(offset_hex_center(in.pos));
+    let hex_dist = length(offset_hex_center(in.pos.xy));
     let alter_factor = 1.0 - smoothstep(0.45,0.5, hex_dist);
               
     // weights[max_i]  *= (n + 0.5 )* alter_factor;
@@ -70,7 +67,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32>  {
 
 
 
-    let sample_uv = in.pos * 0.2; // (in.pos  + (dir_2d * n * 0.2)) * 0.4;
+    let sample_uv = in.pos.xy * 0.2; // (in.pos  + (dir_2d * n * 0.2)) * 0.4;
     let color_0 = textureSample(t_terrain, s_terrain, sample_uv, in.indices[0]).rgb;
     let color_1 = textureSample(t_terrain, s_terrain, sample_uv, in.indices[1]).rgb;
     let color_2 = textureSample(t_terrain, s_terrain, sample_uv, in.indices[2]).rgb;

@@ -30,9 +30,9 @@ main :: proc() {
 
 	terrain_mesh := d.terrain_mesh_create(
 		{
-			d.TerrainVertex{pos = {0, 0}, indices = {0, 1, 2}, weights = {1, 0, 0}},
-			d.TerrainVertex{pos = {5, 7}, indices = {0, 1, 2}, weights = {0, 1, 0}},
-			d.TerrainVertex{pos = {10, 0}, indices = {0, 1, 2}, weights = {0, 0, 1}},
+			d.TerrainVertex{pos = {0, 0, 0}, indices = {0, 1, 2}, weights = {1, 0, 0}},
+			d.TerrainVertex{pos = {5, 7, 0}, indices = {0, 1, 2}, weights = {0, 1, 0}},
+			d.TerrainVertex{pos = {10, 0, 4}, indices = {0, 1, 2}, weights = {0, 0, 1}},
 		},
 		d.ENGINE.device,
 		d.ENGINE.queue,
@@ -246,8 +246,11 @@ snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 
 		f := f32(i) / f32(SNAKE_PTS)
 		body_width: f32 = 0.4 * (1.0 - f)
-		append(&snake.vertices, d.ColorMeshVertex{pos = pt + dir_t * body_width, color = color})
-		append(&snake.vertices, d.ColorMeshVertex{pos = pt - dir_t * body_width, color = color})
+
+		pt_1 := pt + dir_t * body_width
+		pt_2 := pt - dir_t * body_width
+		append(&snake.vertices, d.ColorMeshVertex{pos = Vec3{pt_1.x, 0, pt_1.y}, color = color})
+		append(&snake.vertices, d.ColorMeshVertex{pos = Vec3{pt_2.x, 0, pt_2.y}, color = color})
 		base_idx := u32(i * 2)
 		if i != SNAKE_PTS - 1 {
 			append(&snake.indices, base_idx)
@@ -269,7 +272,7 @@ snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 		angle := math.PI * f32(i) / f32(CIRCLE_N)
 		unit_circle_pt := Vec2{math.cos(angle), math.sin(angle)}
 		pos := head_pt + mapping_matrix * unit_circle_pt
-		append(&snake.vertices, d.ColorMeshVertex{pos = pos, color = color})
+		append(&snake.vertices, d.ColorMeshVertex{pos = Vec3{pos.x, 0, pos.y}, color = color})
 
 		v_idx_next := u32(len(snake.vertices))
 		v_idx := v_idx_next - 1
