@@ -1,9 +1,18 @@
 struct Globals {
-    view_proj:     mat4x4<f32>,
-    screen_size:   vec2<f32>,
-    cursor_pos:    vec2<f32>,
-    time_secs:     f32,
-    _pad:          f32,
+    view_proj:   mat4x4<f32>,
+    view:        mat4x4<f32>,
+    proj:        mat4x4<f32>,
+    eye_pos:     vec4<f32>,
+    screen_size: vec2<f32>,
+    cursor_pos:  vec2<f32>,
+    time_secs:    f32,
+    _pad0:        f32,
+    _pad1:        f32,
+    _pad2:        f32,
+    _pad3:        f32,
+    _pad4:        f32,
+    _pad5:        f32,
+    _pad6:        f32,
 }
 
 @group(0) @binding(0)

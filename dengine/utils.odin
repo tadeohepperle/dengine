@@ -48,9 +48,10 @@ UVec2 :: [2]u32
 UVec3 :: [3]u32
 IVec2 :: [2]i32
 
+
 Ray :: struct {
-	direction: Vec3,
 	origin:    Vec3,
+	direction: Vec3,
 }
 
 next_pow2_number :: proc(n: int) -> int {

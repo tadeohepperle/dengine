@@ -610,6 +610,7 @@ text_from_struct :: proc(text: Text, id: UiId = 0) {
 text :: proc {
 	text_from_string,
 	text_from_struct,
+	text_from_any,
 }
 
 text_from_string :: proc(text: string, id: UiId = 0) {
@@ -623,7 +624,19 @@ text_from_string :: proc(text: string, id: UiId = 0) {
 		},
 		id,
 	)
+}
 
+text_from_any :: proc(text: any, id: UiId = 0) {
+	text_from_struct(
+		Text {
+			str = fmt.aprint(text, allocator = context.temp_allocator),
+			font = DEFAULT_FONT,
+			color = UI_MEMORY.default_font_color,
+			font_size = UI_MEMORY.default_font_size,
+			shadow = 0.0,
+		},
+		id,
+	)
 }
 
 // layout pass over the UI_MEMORY, after this, for each element, 

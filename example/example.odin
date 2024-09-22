@@ -57,6 +57,8 @@ main :: proc() {
 	color3: Color = d.Color_Chartreuse
 	text_align: d.TextAlign
 
+	ball_positions: [dynamic]Vec3
+
 	for d.next_frame() {
 		append(&recorded_dt, d.ENGINE.delta_secs * 1000.0)
 		d.start_window("Example Window")
@@ -97,12 +99,12 @@ main :: proc() {
 		d.slider_f32(&d.SCENE.camera.eye_pos.y, -20, 20)
 		d.text("eye_z")
 		d.slider_f32(&d.SCENE.camera.eye_pos.z, -20, 20)
-		d.text(
-			fmt.aprint(
-				d.camera_to_raw(d.SCENE.camera, d.ENGINE.screen_size_f32),
-				allocator = context.temp_allocator,
-			),
-		)
+		// d.text(
+		// 	fmt.aprint(
+		// 		d.camera_to_raw(d.SCENE.camera, d.ENGINE.screen_size_f32),
+		// 		allocator = context.temp_allocator,
+		// 	),
+		// )
 		// d.enum_radio(&text_align, "Text Align")
 		// d.enum_radio(&d.ENGINE.settings.tonemapping, "Tonemapping")
 		// d.color_picker(&background_color, "Background")
@@ -114,17 +116,32 @@ main :: proc() {
 		// d.text("Bloom blend factor:")
 		// d.slider(&d.ENGINE.settings.bloom_settings.blend_factor)
 		// d.text_edit(&text_to_edit, align = .Center, font_size = d.THEME.font_size)
-
+		d.text(d.get_hit().screen_ray)
 		d.end_window()
 
 		d.draw_terrain_mesh(&terrain_mesh)
 
 		for y in -5 ..= 5 {
-			d.draw_gizmos_line(Vec2{-5, f32(y)}, Vec2{5, f32(y)}, color2)
+			d.draw_gizmos_line(Vec3{-5, f32(y), 0}, Vec3{5, f32(y), 0}, color2)
 		}
 		for x in -5 ..= 5 {
-			d.draw_gizmos_line(Vec2{f32(x), -5}, Vec2{f32(x), 5}, color2)
+			d.draw_gizmos_line(Vec3{f32(x), -5, 0}, Vec3{f32(x), 5, 0}, color2)
 		}
+
+		if d.is_right_pressed() {
+			clear(&ball_positions)
+			ray := d.get_hit().screen_ray
+			for i in 0 ..< 20 {
+				p := ray.origin + ray.direction * f32(i)
+				append(&ball_positions, p)
+			}
+
+		}
+
+		for p in ball_positions {
+			d.draw_gizmos_sphere(p, 0.3, d.Color_Khaki)
+		}
+
 
 		d.draw_sprite(
 			d.Sprite {

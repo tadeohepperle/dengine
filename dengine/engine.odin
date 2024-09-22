@@ -88,10 +88,7 @@ Engine :: struct {
 	ui_renderer:               UiRenderer,
 	color_mesh_renderer:       ColorMeshRenderer,
 	terrain_renderer:          TerrainRenderer,
-	hit_pos:                   Vec2,
-	hit_collider:              ColliderMetadata,
-	hit_collider_idx:          int,
-	hit_ui:                    bool,
+	hit:                       HitInfo,
 	time_frame_sections:       [dynamic][FrameSection]Duration,
 	is_timing_frame_sections:  bool,
 	time_query_set:            wgpu.QuerySet,
@@ -100,20 +97,33 @@ Engine :: struct {
 	assets:                    EngineAssets,
 }
 
-cursor_2d_hit_pos :: proc(cursor_pos: Vec2, screen_size: Vec2, camera: ^Camera) -> Vec2 {
-	// p := (cursor_pos - (screen_size / 2)) * 2.0 / screen_size.y * camera.y_height
-	// p.x = -p.x
-	// return camera.pos - p
-	// todo()
-	return {}
+HitInfo :: struct {
+	screen_ray:        Ray,
+	hit_xy_plane:      bool,
+	hit_xy_plane_pt:   Vec2,
+	hit_xz_plane:      bool,
+	hit_xz_plane_pt:   Vec2,
+	hit_collider_idx:  int,
+	hit_collider:      ColliderMetadata,
+	hit_collider_dist: f32,
+	is_on_ui:          bool,
 }
 
 Globals :: struct {
-	camera_raw:  CameraRaw,
+	view_proj:   Mat4,
+	view:        Mat4,
+	proj:        Mat4,
+	eye_pos:     Vec4,
 	screen_size: Vec2,
 	cursor_pos:  Vec2,
 	time_secs:   f32,
-	_pad:        f32,
+	_pad0:       f32,
+	_pad1:       f32,
+	_pad2:       f32,
+	_pad3:       f32,
+	_pad4:       f32,
+	_pad5:       f32,
+	_pad6:       f32,
 }
 
 engine_create :: proc(
@@ -212,6 +222,35 @@ engine_destroy :: proc(engine: ^Engine) {
 	delete(engine.time_frame_sections)
 }
 
+engine_recalculate_hit_info :: proc(engine: ^Engine, scene: ^Scene) {
+	hit: HitInfo
+	camera_raw := camera_to_raw(scene.camera, engine.screen_size_f32)
+	hit.screen_ray = camera_ray_from_screen_pos(
+		camera_raw,
+		engine.input.cursor_pos,
+		engine.screen_size_f32,
+	)
+	_, hit_xy_plane_pt, hit_xy_plane := ray_intersects_xy_plane(hit.screen_ray)
+	_, hit_xz_plane_pt, hit_xz_plane := ray_intersects_xz_plane(hit.screen_ray)
+
+	hit.hit_collider_dist = max(f32)
+	hit.hit_collider = NO_COLLIDER
+	hit.hit_collider_idx = -1
+	for &e, i in scene.last_frame_colliders {
+		dist, is_hit := ray_intersects_shape(hit.screen_ray, e.shape)
+		if is_hit {
+			if dist < hit.hit_collider_dist {
+				hit.hit_collider_dist = dist
+				hit.hit_collider = e.metadata
+				hit.hit_collider_idx = i
+			}
+
+		}
+	}
+	hit.is_on_ui = engine.ui_renderer.cache.state.hovered_id != 0
+	engine.hit = hit
+}
+
 engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 	frame_section_start(engine, .Frame)
 	frame_section_start(engine, .Frame_Start)
@@ -227,28 +266,8 @@ engine_start_frame :: proc(engine: ^Engine, scene: ^Scene) -> bool {
 	engine.total_secs = f32(engine.total_time_f64)
 	engine.input.total_secs = engine.total_secs
 	engine.input.delta_secs = engine.delta_secs
-	engine.hit_pos = cursor_2d_hit_pos(
-		engine.input.cursor_pos,
-		engine.screen_size_f32,
-		&scene.camera,
-	)
 
-	highest_z_collider_hit: int = min(int)
-
-	engine.hit_collider_idx = -1
-	for &e, i in scene.last_frame_colliders {
-		if e.z > highest_z_collider_hit {
-			if collider_overlaps_point(&e.shape, engine.hit_pos) {
-				highest_z_collider_hit = e.z
-				engine.hit_collider = e.metadata
-				engine.hit_collider_idx = i
-			}
-		}
-	}
-	engine.hit_ui = engine.ui_renderer.cache.state.hovered_id != 0
-	if engine.hit_collider_idx == -1 {
-		engine.hit_collider = NO_COLLIDER // no hit, set to default.
-	}
+	engine_recalculate_hit_info(engine, scene)
 
 	if glfw.WindowShouldClose(engine.window) || .JustPressed in engine.input.keys[.ESCAPE] {
 		return false
@@ -315,30 +334,28 @@ engine_end_frame :: proc(engine: ^Engine, scene: ^Scene) {
 _engine_debug_collider_gizmos :: proc(engine: ^Engine, scene: ^Scene) {
 	add_collider_gizmos :: #force_inline proc(
 		rend: ^GizmosRenderer,
-		shape: ^ColliderShape,
+		shape: ColliderShape,
 		color: Color,
 	) {
-		switch c in shape {
-		case Circle:
-			gizmos_renderer_add_circle(rend, c.pos, c.radius, color)
-		case Aabb:
-			gizmos_renderer_add_aabb(rend, c, color, .WORLD_SPACE_2D)
+		switch s in shape {
+		case Sphere:
+			todo()
 		case Triangle:
-			gizmos_renderer_add_line(rend, c.a, c.b, color, .WORLD_SPACE_2D)
-			gizmos_renderer_add_line(rend, c.b, c.c, color, .WORLD_SPACE_2D)
-			gizmos_renderer_add_line(rend, c.c, c.a, color, .WORLD_SPACE_2D)
-		case RotatedRect:
-			gizmos_renderer_add_line(rend, c.a, c.b, color, .WORLD_SPACE_2D)
-			gizmos_renderer_add_line(rend, c.b, c.c, color, .WORLD_SPACE_2D)
-			gizmos_renderer_add_line(rend, c.c, c.d, color, .WORLD_SPACE_2D)
-			gizmos_renderer_add_line(rend, c.d, c.a, color, .WORLD_SPACE_2D)
+			gizmos_renderer_add_line_3d(rend, s.a, s.b, color, .WORLD_SPACE)
+			gizmos_renderer_add_line_3d(rend, s.b, s.c, color, .WORLD_SPACE)
+			gizmos_renderer_add_line_3d(rend, s.c, s.a, color, .WORLD_SPACE)
+		case Quad:
+			gizmos_renderer_add_line_3d(rend, s.a, s.b, color, .WORLD_SPACE)
+			gizmos_renderer_add_line_3d(rend, s.b, s.c, color, .WORLD_SPACE)
+			gizmos_renderer_add_line_3d(rend, s.c, s.d, color, .WORLD_SPACE)
+			gizmos_renderer_add_line_3d(rend, s.d, s.a, color, .WORLD_SPACE)
 		}
 	}
 
 
-	for &collider, i in scene.last_frame_colliders {
-		color := Color_Yellow if i == engine.hit_collider_idx else Color_Light_Blue
-		add_collider_gizmos(&engine.gizmos_renderer, &collider.shape, color)
+	for collider, i in scene.last_frame_colliders {
+		color := Color_Yellow if i == engine.hit.hit_collider_idx else Color_Light_Blue
+		add_collider_gizmos(&engine.gizmos_renderer, collider.shape, color)
 	}
 }
 
@@ -372,12 +389,7 @@ _engine_debug_ui_gizmos :: proc(engine: ^Engine) {
 		if state.pressed_id == k {
 			color = Color_Red
 		}
-		gizmos_renderer_add_aabb(
-			&engine.gizmos_renderer,
-			Aabb{v.pos, v.pos + v.size},
-			color,
-			.UI_LAYOUT_SPACE,
-		)
+		gizmos_renderer_add_aabb(&engine.gizmos_renderer, Aabb{v.pos, v.pos + v.size}, color, .UI)
 	}
 
 	// for &e in UI_MEMORY_elements() {
@@ -421,9 +433,12 @@ _engine_prepare :: proc(engine: ^Engine, scene: ^Scene) {
 	camera_raw := camera_to_raw(scene.camera, screen_size)
 	cursor_pos := [2]f32{f32(engine.input.cursor_pos.x), f32(engine.input.cursor_pos.y)}
 	globals := Globals {
+		view_proj   = camera_raw.view_proj,
+		proj        = camera_raw.proj,
+		view        = camera_raw.view,
+		eye_pos     = camera_raw.eye_pos,
 		screen_size = screen_size,
 		cursor_pos  = cursor_pos,
-		camera_raw  = camera_raw,
 		time_secs   = f32(engine.total_time_f64),
 	}
 	uniform_buffer_write(engine.queue, &engine.globals_uniform, &globals)
@@ -527,7 +542,7 @@ _engine_render :: proc(engine: ^Engine, scene: ^Scene) {
 		&engine.gizmos_renderer,
 		hdr_pass,
 		engine.globals_uniform.bind_group,
-		.WORLD_SPACE_2D,
+		.WORLD_SPACE,
 	)
 	ui_renderer_render(
 		&engine.ui_renderer,

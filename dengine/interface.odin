@@ -33,19 +33,31 @@ get_mouse_btn :: proc(btn: MouseButton = .Left) -> PressFlags {
 get_scroll :: proc() -> f32 {
 	return ENGINE.input.scroll
 }
-get_hit_pos :: #force_inline proc() -> Vec2 {
-	return ENGINE.hit_pos
+get_hit :: #force_inline proc() -> HitInfo {
+	return ENGINE.hit
 }
 
 /// with left mouse button
 is_double_clicked :: proc() -> bool {
 	return ENGINE.input.double_clicked
 }
-is_just_left_pressed :: proc() -> bool {
+is_left_just_pressed :: proc() -> bool {
 	return .JustPressed in ENGINE.input.mouse_buttons[.Left]
 }
-is_just_left_released :: proc() -> bool {
+is_left_pressed :: proc() -> bool {
+	return .Pressed in ENGINE.input.mouse_buttons[.Left]
+}
+is_left_just_released :: proc() -> bool {
 	return .JustReleased in ENGINE.input.mouse_buttons[.Left]
+}
+is_right_just_pressed :: proc() -> bool {
+	return .JustPressed in ENGINE.input.mouse_buttons[.Right]
+}
+is_right_pressed :: proc() -> bool {
+	return .Pressed in ENGINE.input.mouse_buttons[.Right]
+}
+is_right_just_released :: proc() -> bool {
+	return .JustReleased in ENGINE.input.mouse_buttons[.Right]
 }
 is_key_pressed :: #force_inline proc(key: Key) -> bool {
 	return .Pressed in ENGINE.input.keys[key]
@@ -83,30 +95,16 @@ draw_sprite :: #force_inline proc(sprite: Sprite) {
 draw_terrain_mesh :: #force_inline proc(mesh: ^TerrainMesh) {
 	append(&SCENE.terrain_meshes, mesh)
 }
-draw_gizmos_aabb :: proc(
-	aabb: Aabb,
-	color := Color{1, 0, 0, 1},
-	mode := GizmosMode.WORLD_SPACE_2D,
-) {
-	gizmos_renderer_add_aabb(&ENGINE.gizmos_renderer, aabb, color, mode)
+draw_gizmos_box :: proc(center: Vec3, size: Vec3, color := GIZMOS_COLOR) {
+	gizmos_renderer_add_box_3d(&ENGINE.gizmos_renderer, center, size, color)
 }
-draw_gizmos_rect :: proc(
-	center: Vec2,
-	size: Vec2,
-	color := Color{1, 0, 0, 1},
-	mode := GizmosMode.WORLD_SPACE_2D,
-) {
-	gizmos_renderer_add_rect(&ENGINE.gizmos_renderer, center, size, color, mode)
+draw_gizmos_sphere :: proc(center: Vec3, radius: f32, color := GIZMOS_COLOR) {
+	gizmos_renderer_add_sphere(&ENGINE.gizmos_renderer, center, radius, color)
 }
-draw_gizmos_line :: proc(
-	from: Vec2,
-	to: Vec2,
-	color := Color{1, 0, 0, 1},
-	mode := GizmosMode.WORLD_SPACE_2D,
-) {
-	gizmos_renderer_add_line(&ENGINE.gizmos_renderer, from, to, color, mode)
+draw_gizmos_line :: proc(from: Vec3, to: Vec3, color := GIZMOS_COLOR) {
+	gizmos_renderer_add_line_3d(&ENGINE.gizmos_renderer, from, to, color, .WORLD_SPACE)
 }
-draw_gizmos_circle :: proc(
+draw_gizmos_circle_xy :: proc(
 	center: Vec2,
 	radius: f32,
 	color: Color = Color_Red,
@@ -120,6 +118,24 @@ draw_gizmos_circle :: proc(
 		color,
 		segments,
 		draw_inner_lines,
+		.WORLD_XY,
+	)
+}
+draw_gizmos_circle_xz :: proc(
+	center: Vec2,
+	radius: f32,
+	color: Color = Color_Red,
+	segments: int = 12,
+	draw_inner_lines: bool = false,
+) {
+	gizmos_renderer_add_circle(
+		&ENGINE.gizmos_renderer,
+		center,
+		radius,
+		color,
+		segments,
+		draw_inner_lines,
+		.WORLD_XZ,
 	)
 }
 // Can write directly into these, instead of using one of the `draw_color_mesh` procs.
@@ -154,27 +170,12 @@ draw_color_mesh_indexed_single_color :: proc(
 ) {
 	color_mesh_add_indexed_single_color(&ENGINE.color_mesh_renderer, positions, indices, color)
 }
-add_circle_collider :: proc(pos: Vec2, radius: f32, metadata: ColliderMetadata, z: int = 0) {
-	append(
-		&SCENE.colliders,
-		Collider{shape = Circle{pos = pos, radius = radius}, metadata = metadata, z = z},
-	)
+add_sphere_collider :: proc(metadata: ColliderMetadata, center: Vec3, radius: f32) {
+	append(&SCENE.colliders, Collider{shape = Sphere{center, radius}, metadata = metadata})
 }
-add_aabb_collider :: proc(aabb: Aabb, metadata: ColliderMetadata, z: int = 0) {
-	append(&SCENE.colliders, Collider{shape = aabb, metadata = metadata, z = z})
+add_quad_collider :: proc(quad: Quad, metadata: ColliderMetadata) {
+	append(&SCENE.colliders, Collider{shape = quad, metadata = metadata})
 }
-add_triangle_collider :: proc(a: Vec2, b: Vec2, c: Vec2, metadata: ColliderMetadata, z: int = 0) {
-	append(&SCENE.colliders, Collider{shape = Triangle{a, b, c}, metadata = metadata, z = z})
-}
-add_rect_collider :: proc(
-	center: Vec2,
-	size: Vec2,
-	rotation: f32,
-	metadata: ColliderMetadata,
-	z: int = 0,
-) {
-	append(
-		&SCENE.colliders,
-		Collider{shape = rotated_rect(center, size, rotation), metadata = metadata, z = z},
-	)
+add_triangle_collider :: proc(triangle: Triangle, metadata: ColliderMetadata) {
+	append(&SCENE.colliders, Collider{shape = triangle, metadata = metadata})
 }
