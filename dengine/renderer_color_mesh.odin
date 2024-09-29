@@ -16,19 +16,16 @@ ColorMeshRenderer :: struct {
 	index_buffer:  DynamicBuffer(u32),
 }
 
-color_mesh_renderer_create :: proc(
-	rend: ^ColorMeshRenderer,
-	device: wgpu.Device,
-	queue: wgpu.Queue,
-	reg: ^ShaderRegistry,
-	globals_layout: wgpu.BindGroupLayout,
-) {
-	rend.device = device
-	rend.queue = queue
+color_mesh_renderer_create :: proc(rend: ^ColorMeshRenderer, platform: ^Platform) {
+	rend.device = platform.device
+	rend.queue = platform.queue
 	rend.vertex_buffer.usage = {.Vertex}
 	rend.index_buffer.usage = {.Index}
-	rend.pipeline.config = color_mesh_pipeline_config(device, globals_layout)
-	render_pipeline_create_panic(&rend.pipeline, device, reg)
+	rend.pipeline.config = color_mesh_pipeline_config(
+		platform.device,
+		platform.shader_globals_uniform.bind_group_layout,
+	)
+	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)
 }
 
 color_mesh_renderer_destroy :: proc(rend: ^ColorMeshRenderer) {

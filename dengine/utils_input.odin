@@ -5,49 +5,7 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 
-
-MAX_CAPTURES_CHARS :: 16
-
 DOUBLE_CLICK_MAX_INTERVAL_MS :: 220
-Input :: struct {
-	old_cursor_pos_f64, cursor_pos_f64: [2]f64,
-	cursor_pos:                         [2]f32,
-	cursor_delta:                       [2]f32,
-	keys:                               #sparse[Key]PressFlags,
-	mouse_buttons:                      [MouseButton]PressFlags,
-	chars:                              [MAX_CAPTURES_CHARS]rune,
-	chars_len:                          int,
-	total_secs:                         f32,
-	delta_secs:                         f32,
-	scroll:                             f32,
-	window:                             glfw.WindowHandle,
-	last_left_just_released_time:       time.Time,
-	double_clicked:                     bool,
-}
-
-input_set_clipboard :: proc(input: ^Input, str: string) {
-	builder := strings.builder_make(allocator = context.temp_allocator)
-	strings.write_string(&builder, str)
-	glfw.SetClipboardString(input.window, strings.to_cstring(&builder))
-}
-
-input_get_clipboard :: proc(input: ^Input) -> string {
-	return glfw.GetClipboardString(input.window)
-}
-
-input_just_pressed_or_repeated :: proc(input: ^Input, key: Key) -> bool {
-	return PressFlags{.JustPressed, .JustRepeated} & input.keys[key] != PressFlags{}
-}
-
-input_just_pressed :: proc(input: ^Input, key: Key) -> bool {
-	return .JustPressed in input.keys[key]
-}
-
-input_pressed :: proc(input: ^Input, key: Key) -> bool {
-	return .Pressed in input.keys[key]
-}
-
-
 PressFlags :: bit_set[PressFlag;u8]
 
 PressFlag :: enum u8 {
@@ -57,82 +15,13 @@ PressFlag :: enum u8 {
 	JustReleased,
 }
 
-
-input_receive_glfw_char_event :: proc(input: ^Input, char: rune) {
-	if input.chars_len < MAX_CAPTURES_CHARS {
-		input.chars[input.chars_len] = char
-		input.chars_len += 1
-	} else {
-		print("Warning: a character has been dropped:", char)
-	}
-}
-
-
-input_end_of_frame :: proc(input: ^Input) {
-	input.scroll = 0
-	input.chars_len = 0
-	input.cursor_delta = 0
-	input.double_clicked = false
-	for key in Key {
-		state := &input.keys[key]
-		if .Pressed in state {
-			state^ = {.Pressed}
-		} else {
-			state^ = {}
-		}
-	}
-	for &btn in input.mouse_buttons {
-		if .Pressed in btn {
-			btn = {.Pressed}
-		} else {
-			btn = {}
-		}
-	}
-}
-
-input_receive_glfw_key_event :: proc(input: ^Input, glfw_key, action: i32) {
-	switch key in glfw_int_to_key(glfw_key) {
-	case Key:
-		switch action {
-		case glfw.PRESS:
-			input.keys[key] = {.JustPressed, .Pressed}
-		case glfw.REPEAT:
-			input.keys[key] = {.JustRepeated, .Pressed}
-		case glfw.RELEASE:
-			input.keys[key] = {.JustReleased}
-		}
-	}
-}
-
-input_receive_glfw_mouse_btn_event :: proc(input: ^Input, glfw_button, action: i32) {
-	switch button in glfw_int_to_mouse_button(glfw_button) {
-	case MouseButton:
-		switch action {
-		case glfw.PRESS:
-			input.mouse_buttons[button] = {.JustPressed, .Pressed}
-		case glfw.REPEAT:
-			input.mouse_buttons[button] = {.JustRepeated, .Pressed}
-		case glfw.RELEASE:
-			input.mouse_buttons[button] = {.JustReleased}
-			if button == .Left {
-				now := time.now()
-				if time.diff(input.last_left_just_released_time, now) <
-				   DOUBLE_CLICK_MAX_INTERVAL_MS * time.Millisecond {
-					input.double_clicked = true
-				}
-				input.last_left_just_released_time = now
-			}
-		}
-	}
-}
-
 MouseButton :: enum {
 	Left,
 	Right,
 	Middle,
 }
 
-glfw_int_to_mouse_button :: proc(glfw_mouse_button: i32) -> Maybe(MouseButton) {
+glfw_int_to_mouse_button :: proc "contextless" (glfw_mouse_button: i32) -> Maybe(MouseButton) {
 	switch glfw_mouse_button {
 	case glfw.MOUSE_BUTTON_LEFT:
 		return .Left
@@ -145,7 +34,7 @@ glfw_int_to_mouse_button :: proc(glfw_mouse_button: i32) -> Maybe(MouseButton) {
 	}
 }
 
-glfw_int_to_key :: proc(glfw_key: i32) -> Maybe(Key) {
+glfw_int_to_key :: proc "contextless" (glfw_key: i32) -> Maybe(Key) {
 	switch glfw_key {
 	case glfw.KEY_0:
 		return ._0

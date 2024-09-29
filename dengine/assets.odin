@@ -20,14 +20,14 @@ TextureSlot :: struct #raw_union {
 }
 #assert(size_of(Texture) == size_of(TextureSlot))
 
-EngineAssets :: struct {
+AssetManager :: struct {
 	textures: SlotMap(Texture), // also contains texture arrays!
 	fonts:    SlotMap(Font),
 	device:   wgpu.Device,
 	queue:    wgpu.Queue,
 }
-assets_create :: proc(
-	assets: ^EngineAssets,
+asset_manager_create :: proc(
+	assets: ^AssetManager,
 	default_font_path: string,
 	device: wgpu.Device,
 	queue: wgpu.Queue,
@@ -44,7 +44,7 @@ assets_create :: proc(
 	default_font_handle := assets_load_font(assets, default_font_path)
 	assert(default_font_handle == 0) // is the first one
 }
-assets_destroy :: proc(assets: ^EngineAssets) {
+asset_manager_destroy :: proc(assets: ^AssetManager) {
 	textures := slotmap_to_slice(assets.textures)
 	for &texture in textures {
 		texture_destroy(&texture)
@@ -56,14 +56,14 @@ assets_destroy :: proc(assets: ^EngineAssets) {
 }
 
 assets_get_texture_array_bind_group :: proc(
-	assets: EngineAssets,
+	assets: AssetManager,
 	handle: TextureArrayHandle,
 ) -> wgpu.BindGroup {
 	texture := slotmap_get(assets.textures, u32(handle))
 	return texture.bind_group
 }
 assets_get_texture_bind_group :: proc(
-	assets: EngineAssets,
+	assets: AssetManager,
 	handle: TextureHandle,
 ) -> wgpu.BindGroup {
 	texture := slotmap_get(assets.textures, u32(handle))
@@ -71,7 +71,7 @@ assets_get_texture_bind_group :: proc(
 }
 
 assets_get_font_texture_bind_group :: proc(
-	assets: EngineAssets,
+	assets: AssetManager,
 	handle: FontHandle,
 ) -> wgpu.BindGroup {
 	font := slotmap_get(assets.fonts, u32(handle))
@@ -79,19 +79,19 @@ assets_get_font_texture_bind_group :: proc(
 	return texture.bind_group
 }
 
-assets_get_texture_info :: proc(assets: EngineAssets, handle: TextureHandle) -> TextureInfo {
+assets_get_texture_info :: proc(assets: AssetManager, handle: TextureHandle) -> TextureInfo {
 	texture := slotmap_get(assets.textures, u32(handle))
 	return texture.info
 }
 
-assets_get_font :: proc(assets: EngineAssets, handle: FontHandle) -> Font {
+assets_get_font :: proc(assets: AssetManager, handle: FontHandle) -> Font {
 	return slotmap_get(assets.fonts, u32(handle))
 }
 
 assets_load_texture :: proc(
-	assets: ^EngineAssets,
+	assets: ^AssetManager,
 	path: string,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> TextureHandle {
 	texture, err := texture_from_image_path(assets.device, assets.queue, path, settings)
 	if err != nil {
@@ -103,9 +103,9 @@ assets_load_texture :: proc(
 }
 
 assets_load_texture_array :: proc(
-	assets: ^EngineAssets,
+	assets: ^AssetManager,
 	paths: []string,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> TextureArrayHandle {
 	texture, err := texture_array_from_image_paths(assets.device, assets.queue, paths, settings)
 	if err != nil {
@@ -116,7 +116,7 @@ assets_load_texture_array :: proc(
 	return texture_handle
 }
 
-assets_load_font :: proc(assets: ^EngineAssets, path: string) -> FontHandle {
+assets_load_font :: proc(assets: ^AssetManager, path: string) -> FontHandle {
 	font, font_texture, err := _font_load_from_path(path, assets.device, assets.queue)
 	if err != nil {
 		print("error:", err)
@@ -128,12 +128,12 @@ assets_load_font :: proc(assets: ^EngineAssets, path: string) -> FontHandle {
 	return font_handle
 }
 
-assets_deregister_texture :: proc(assets: ^EngineAssets, handle: TextureHandle) {
+assets_deregister_texture :: proc(assets: ^AssetManager, handle: TextureHandle) {
 	texture := slotmap_remove(&assets.textures, u32(handle))
 	texture_destroy(&texture)
 }
 
-assets_deregister_font :: proc(assets: ^EngineAssets, handle: FontHandle) {
+assets_deregister_font :: proc(assets: ^AssetManager, handle: FontHandle) {
 	font := slotmap_remove(&assets.fonts, u32(handle))
 	font_destroy(&font)
 	assets_deregister_texture(assets, font.texture)

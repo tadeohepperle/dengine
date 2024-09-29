@@ -23,20 +23,17 @@ GizmosSpace :: enum u32 {
 
 GIZMOS_COLOR := Color{1, 0, 0, 1}
 
-gizmos_renderer_create :: proc(
-	rend: ^GizmosRenderer,
-	device: wgpu.Device,
-	queue: wgpu.Queue,
-	reg: ^ShaderRegistry,
-	globals_layout: wgpu.BindGroupLayout,
-) {
-	rend.device = device
-	rend.queue = queue
+gizmos_renderer_create :: proc(rend: ^GizmosRenderer, platform: ^Platform) {
+	rend.device = platform.device
+	rend.queue = platform.queue
 	for mode in GizmosSpace {
 		rend.vertex_buffers[mode].usage = {.Vertex}
 	}
-	rend.pipeline.config = gizmos_pipeline_config(device, globals_layout)
-	render_pipeline_create_panic(&rend.pipeline, device, reg)
+	rend.pipeline.config = gizmos_pipeline_config(
+		platform.device,
+		platform.shader_globals_uniform.bind_group_layout,
+	)
+	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)
 }
 gizmos_renderer_destroy :: proc(rend: ^GizmosRenderer) {
 	for mode in GizmosSpace {

@@ -111,7 +111,7 @@ sprite_renderer_render :: proc(
 	rend: ^SpriteRenderer,
 	render_pass: wgpu.RenderPassEncoder,
 	globals_uniform_bind_group: wgpu.BindGroup,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) {
 
 	if len(rend.batches) == 0 {
@@ -147,18 +147,15 @@ sprite_renderer_destroy :: proc(rend: ^SpriteRenderer) {
 	dynamic_buffer_destroy(&rend.instance_buffer)
 }
 
-sprite_renderer_create :: proc(
-	rend: ^SpriteRenderer,
-	device: wgpu.Device,
-	queue: wgpu.Queue,
-	reg: ^ShaderRegistry,
-	globals_layout: wgpu.BindGroupLayout,
-) {
-	rend.device = device
-	rend.queue = queue
+sprite_renderer_create :: proc(rend: ^SpriteRenderer, platform: ^Platform) {
+	rend.device = platform.device
+	rend.queue = platform.queue
 	rend.instance_buffer.usage = {.Vertex}
-	rend.pipeline.config = sprite_pipeline_config(device, globals_layout)
-	render_pipeline_create_panic(&rend.pipeline, device, reg)
+	rend.pipeline.config = sprite_pipeline_config(
+		platform.device,
+		platform.shader_globals_uniform.bind_group_layout,
+	)
+	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)
 }
 
 sprite_pipeline_config :: proc(
@@ -189,68 +186,3 @@ sprite_pipeline_config :: proc(
 		format = HDR_FORMAT,
 	}
 }
-
-// create_sprite_render_pipeline :: proc(
-// 	device: wgpu.Device,
-// 	reg: ^ShaderRegistry,
-// 	pipeline: ^RenderPipeline,
-// ) {
-
-// 	pipeline.fs_shader = "todo"
-// 	pipeline.vs_shader = "todo"
-// 	vs_shader_module := shader_registry_get(reg, vs_shader)
-
-// 	shader = shader_registry_get()
-
-// 	pipeline.fs_shader = "todo"
-// 	pipeline.vs_shader = "todo"
-// 	if pipeline.layout != nil {
-// 		wgpu.PipelineLayoutRelease(pipeline.layout)
-// 	}
-// 	if pipeline.pipeline != nil {
-// 		wgpu.RenderPipelineRelease(pipeline.pipeline)
-// 	}
-
-// 	// wgpu.Create
-// 	shader :: `
-// 	@vertex
-// 	fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-// 		let x = f32(i32(in_vertex_index) - 1);
-// 		let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
-// 		return vec4<f32>(x, y, 0.0, 1.0);
-// 	}
-
-// 	@fragment
-// 	fn fs_main() -> @location(0) vec4<f32> {
-// 		return vec4<f32>(1.0, 0.0, 0.0, 1.0);
-// 	}`
-
-// 	shader_module := wgpu.DeviceCreateShaderModule(
-// 		device,
-// 		&{
-// 			nextInChain = &wgpu.ShaderModuleWGSLDescriptor {
-// 				sType = .ShaderModuleWGSLDescriptor,
-// 				code = shader,
-// 			},
-// 		},
-// 	)
-// 	pipeline.layout = wgpu.DeviceCreatePipelineLayout(device, &{})
-// 	pipeline.pipeline = wgpu.DeviceCreateRenderPipeline(
-// 		device,
-// 		&{
-// 			layout = pipeline.layout,
-// 			vertex = {module = shader_module, entryPoint = "vs_main"},
-// 			fragment = &{
-// 				module = shader_module,
-// 				entryPoint = "fs_main",
-// 				targetCount = 1,
-// 				targets = &wgpu.ColorTargetState {
-// 					format = SURFACE_FORMAT,
-// 					writeMask = wgpu.ColorWriteMaskFlags_All,
-// 				},
-// 			},
-// 			primitive = {topology = .TriangleList},
-// 			multisample = {count = 1, mask = 0xFFFFFFFF},
-// 		},
-// 	)
-// }

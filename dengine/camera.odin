@@ -116,16 +116,3 @@ matrix4_look_at_f32_left_handed :: proc "contextless" (eye, focus_pos: Vec3) -> 
 		0, 0, 0, 1, 
 	}
 }
-
-import "base:runtime"
-
-main :: proc() {
-
-	ti := runtime.type_info_base(type_info_of(Globals))
-	print(ti.size)
-	print(ti.align)
-	s := ti.variant.(runtime.Type_Info_Struct)
-	for i in 0 ..< s.field_count {
-		print("    ", s.names[i], s.offsets[i], s.types[i])
-	}
-}

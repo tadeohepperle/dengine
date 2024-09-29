@@ -18,7 +18,6 @@ ui_id :: proc(str: string) -> UiId {
 	return hash.crc64_xz(transmute([]byte)str)
 }
 
-
 derived_id :: proc(id: UiId) -> UiId {
 	bytes := transmute([8]u8)id
 	return hash.crc64_xz(bytes[:])
@@ -103,7 +102,7 @@ UiCache :: struct {
 	state:                  InteractionState(UiId),
 	cursor_pos_start_press: Vec2,
 	active_value:           ActiveValue,
-	input:                  ^Input,
+	platform:               ^Platform,
 	cursor_pos:             Vec2, // (scaled to reference cursor pos)
 	layout_extent:          Vec2,
 }
@@ -396,7 +395,7 @@ ui_start_frame :: proc(cache: ^UiCache) {
 	}
 
 	// determine the rest of ids, i.e. 
-	update_interaction_state(&cache.state, hovered_id, cache.input.mouse_buttons[.Left])
+	update_interaction_state(&cache.state, hovered_id, cache.platform.mouse_buttons[.Left])
 
 	if cache.state.just_pressed_id != 0 {
 		// print("just_pressed_id", cache.state.just_pressed_id)
@@ -411,14 +410,19 @@ clear_UI_MEMORY :: proc() {
 	UI_MEMORY.parent_stack_len = 0
 }
 
-ui_end_frame :: proc(batches: ^UiBatches, max_size: Vec2, delta_secs: f32, assets: EngineAssets) {
+ui_end_frame :: proc(
+	batches: ^UiBatches,
+	max_size: Vec2,
+	delta_secs: f32,
+	asset_manager: AssetManager,
+) {
 	assert(UI_MEMORY.parent_stack_len == 0, "make sure to call end_div() for every start_div()!")
 
 	if UI_MEMORY.cache == nil {
 		panic("Cannot end frame when cache == nil")
 	}
 
-	layout(max_size, assets)
+	layout(max_size, asset_manager)
 	update_ui_cache(UI_MEMORY.cache, delta_secs)
 	build_ui_batches(batches)
 	return
@@ -642,7 +646,7 @@ text_from_any :: proc(text: any, id: UiId = 0) {
 // layout pass over the UI_MEMORY, after this, for each element, 
 // the elements_computed buffer should contain the correct values
 @(private)
-layout :: proc(max_size: Vec2, assets: EngineAssets) {
+layout :: proc(max_size: Vec2, assets: AssetManager) {
 	initial_pos := Vec2{0, 0}
 	i: int = 0
 	z: UiZIndex = 0
@@ -660,7 +664,7 @@ set_size :: proc(
 	element: ^UiElement,
 	max_size: Vec2,
 	parent_z: UiZIndex,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) -> (
 	skipped: int,
 ) {
@@ -701,7 +705,7 @@ set_position :: proc(i: int, element: ^UiElement, pos: Vec2) -> (skipped: int) {
 set_size_for_text :: proc(
 	text: ^TextWithComputed,
 	max_size: Vec2,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) -> (
 	text_size: Vec2,
 ) {
@@ -719,7 +723,7 @@ set_size_for_div :: proc(
 	div: ^DivWithComputed,
 	max_size: Vec2,
 	z_of_div: UiZIndex,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) -> (
 	div_size: Vec2,
 	skipped: int,
@@ -797,7 +801,7 @@ set_child_sizes_for_div :: proc(
 	div: ^DivWithComputed,
 	max_size: Vec2,
 	z_of_div: UiZIndex,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) -> (
 	skipped: int,
 ) {
@@ -852,7 +856,7 @@ layout_element_in_text_ctx :: proc(
 	i: int,
 	element: ^UiElement,
 	parent_z: UiZIndex,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) -> (
 	skipped: int,
 ) {
@@ -880,7 +884,7 @@ layout_element_in_text_ctx :: proc(
 layout_text_in_text_ctx :: proc(
 	ctx: ^TextLayoutCtx,
 	text: ^TextWithComputed,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) {
 
 
@@ -970,7 +974,7 @@ layout_div_in_text_ctx :: proc(
 	i: int,
 	div: ^DivWithComputed,
 	z_of_div: UiZIndex,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) -> (
 	div_size: Vec2,
 	div_pos: Vec2,
@@ -1664,7 +1668,7 @@ ui_renderer_render :: proc(
 	render_pass: wgpu.RenderPassEncoder,
 	globals_bind_group: wgpu.BindGroup,
 	screen_size: UVec2,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) {
 	screen_size_f32 := Vec2{f32(screen_size.x), f32(screen_size.y)}
 	NO_CLIPPING_RECT :: Aabb{{0, 0}, {0, 0}}
@@ -1771,23 +1775,23 @@ layout_to_screen_space :: proc(pt: Vec2, screen_size: Vec2) -> Vec2 {
 	return pt * (screen_size.y / f32(SCREEN_REFERENCE_SIZE.y))
 }
 
-ui_renderer_start_frame :: proc(rend: ^UiRenderer, screen_size: Vec2, input: ^Input) {
+ui_renderer_start_frame :: proc(rend: ^UiRenderer, screen_size: Vec2, platform: ^Platform) {
 	cache := &rend.cache
-	cache.input = input
+	cache.platform = platform
 	cache.layout_extent = Vec2 {
 		f32(SCREEN_REFERENCE_SIZE.y) * screen_size.x / screen_size.y,
 		f32(SCREEN_REFERENCE_SIZE.y),
 	}
-	cache.cursor_pos = screen_to_layout_space(input.cursor_pos, screen_size)
+	cache.cursor_pos = screen_to_layout_space(platform.cursor_pos, screen_size)
 	ui_start_frame(cache)
 }
 
 ui_renderer_end_frame_and_prepare_buffers :: proc(
 	rend: ^UiRenderer,
 	delta_secs: f32,
-	assets: EngineAssets,
+	asset_manager: AssetManager,
 ) {
-	ui_end_frame(&rend.batches, rend.cache.layout_extent, delta_secs, assets)
+	ui_end_frame(&rend.batches, rend.cache.layout_extent, delta_secs, asset_manager)
 	dynamic_buffer_write(
 		&rend.vertex_buffer,
 		rend.batches.primitives.vertices[:],
@@ -1810,20 +1814,22 @@ ui_renderer_end_frame_and_prepare_buffers :: proc(
 
 ui_renderer_create :: proc(
 	rend: ^UiRenderer,
-	device: wgpu.Device,
-	queue: wgpu.Queue,
-	reg: ^ShaderRegistry,
-	globals_layout: wgpu.BindGroupLayout,
+	platform: ^Platform,
 	default_font_color: Color,
 	default_font_size: f32,
 ) {
-	rend.device = device
-	rend.queue = queue
-	rend.rect_pipeline.config = ui_rect_pipeline_config(device, globals_layout)
-	render_pipeline_create_panic(&rend.rect_pipeline, device, reg)
-
-	rend.glyph_pipeline.config = ui_glyph_pipeline_config(device, globals_layout)
-	render_pipeline_create_panic(&rend.glyph_pipeline, device, reg)
+	rend.device = platform.device
+	rend.queue = platform.queue
+	rend.rect_pipeline.config = ui_rect_pipeline_config(
+		platform.device,
+		platform.shader_globals_uniform.bind_group_layout,
+	)
+	render_pipeline_create_panic(&rend.rect_pipeline, &platform.shader_registry)
+	rend.glyph_pipeline.config = ui_glyph_pipeline_config(
+		platform.device,
+		platform.shader_globals_uniform.bind_group_layout,
+	)
+	render_pipeline_create_panic(&rend.glyph_pipeline, &platform.shader_registry)
 	UI_MEMORY.default_font = 0
 	UI_MEMORY.default_font_color = default_font_color
 	UI_MEMORY.default_font_size = default_font_size

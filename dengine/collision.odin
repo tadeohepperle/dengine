@@ -3,7 +3,6 @@ package dengine
 import "core:math"
 import "core:math/linalg"
 
-
 ColliderMetadata :: [24]u8
 NO_COLLIDER: ColliderMetadata = {}
 

@@ -71,21 +71,15 @@ TerrainRenderer :: struct {
 	pipeline: RenderPipeline,
 }
 
-terrain_renderer_create :: proc(
-	rend: ^TerrainRenderer,
-	device: wgpu.Device,
-	queue: wgpu.Queue,
-	reg: ^ShaderRegistry,
-	globals_layout: wgpu.BindGroupLayout,
-) {
-	rend.device = device
-	rend.queue = queue
+terrain_renderer_create :: proc(rend: ^TerrainRenderer, platform: ^Platform) {
+	rend.device = platform.device
+	rend.queue = platform.queue
 	rend.pipeline.config = terrain_pipeline_config(
-		device,
-		globals_layout,
-		rgba_texture_array_bind_group_layout_cached(device),
+		platform.device,
+		platform.shader_globals_uniform.bind_group_layout,
+		rgba_texture_array_bind_group_layout_cached(platform.device),
 	)
-	render_pipeline_create_panic(&rend.pipeline, device, reg)
+	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)
 }
 
 terrain_renderer_destroy :: proc(rend: ^TerrainRenderer) {
@@ -98,7 +92,7 @@ terrain_renderer_render :: proc(
 	globals_uniform_bind_group: wgpu.BindGroup,
 	meshes: []^TerrainMesh,
 	handle: TextureArrayHandle,
-	assets: EngineAssets,
+	assets: AssetManager,
 ) {
 	if len(meshes) == 0 || handle == 0 {
 		return
@@ -151,7 +145,7 @@ terrain_pipeline_config :: proc(
 
 
 terrain_textures_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
-	@(static)layout: wgpu.BindGroupLayout
+	@(static) layout: wgpu.BindGroupLayout
 	if layout == nil {
 		entries := [?]wgpu.BindGroupLayoutEntry {
 			wgpu.BindGroupLayoutEntry {

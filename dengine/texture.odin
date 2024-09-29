@@ -7,7 +7,7 @@ import wgpu "vendor:wgpu"
 
 IMAGE_FORMAT :: wgpu.TextureFormat.RGBA8Unorm
 
-DEFAULT_TEXTURESETTINGS :: TextureSettings {
+TEXTURE_SETTINGS_DEFAULT :: TextureSettings {
 	label        = "",
 	format       = IMAGE_FORMAT,
 	address_mode = .Repeat,
@@ -49,7 +49,7 @@ texture_from_image_path :: proc(
 	device: wgpu.Device,
 	queue: wgpu.Queue,
 	path: string,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> (
 	texture: Texture,
 	error: image.Error,
@@ -69,7 +69,7 @@ texture_from_image :: proc(
 	device: wgpu.Device,
 	queue: wgpu.Queue,
 	img: ^image.Image,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> (
 	texture: Texture,
 ) {
@@ -109,7 +109,7 @@ texture_as_image_copy :: proc(texture: ^Texture) -> wgpu.ImageCopyTexture {
 }
 
 _texture_create_1px_white :: proc(device: wgpu.Device, queue: wgpu.Queue) -> Texture {
-	texture := texture_create(device, {1, 1}, DEFAULT_TEXTURESETTINGS)
+	texture := texture_create(device, {1, 1}, TEXTURE_SETTINGS_DEFAULT)
 	block_size: u32 = 4
 	image_copy := texture_as_image_copy(&texture)
 	data_layout := wgpu.TextureDataLayout {
@@ -132,7 +132,7 @@ _texture_create_1px_white :: proc(device: wgpu.Device, queue: wgpu.Queue) -> Tex
 texture_create :: proc(
 	device: wgpu.Device,
 	size: UVec2,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> (
 	texture: Texture,
 ) {
@@ -196,7 +196,7 @@ texture_destroy :: proc(texture: ^Texture) {
 }
 
 rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
-	@(static)layout: wgpu.BindGroupLayout
+	@(static) layout: wgpu.BindGroupLayout
 	if layout == nil {
 		entries := [?]wgpu.BindGroupLayoutEntry {
 			wgpu.BindGroupLayoutEntry {
@@ -227,7 +227,7 @@ rgba_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayo
 
 
 rgba_texture_array_bind_group_layout_cached :: proc(device: wgpu.Device) -> wgpu.BindGroupLayout {
-	@(static)layout: wgpu.BindGroupLayout
+	@(static) layout: wgpu.BindGroupLayout
 	if layout == nil {
 		entries := [?]wgpu.BindGroupLayoutEntry {
 			wgpu.BindGroupLayoutEntry {
@@ -260,7 +260,7 @@ texture_array_create :: proc(
 	device: wgpu.Device,
 	size: UVec2,
 	layers: u32,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> (
 	array: Texture,
 ) {
@@ -317,7 +317,7 @@ texture_array_from_image_paths :: proc(
 	device: wgpu.Device,
 	queue: wgpu.Queue,
 	paths: []string,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> (
 	array: Texture,
 	error: Error,
@@ -335,7 +335,7 @@ texture_array_from_image_paths :: proc(
 			options = image.Options{.alpha_add_if_missing},
 		)
 		if img_error != nil {
-			error = fmt.aprint(img_error, allocator = context.temp_allocator)
+			error = tmp_str(img_error)
 			return
 		}
 		if i == 0 {
@@ -350,6 +350,7 @@ texture_array_from_image_paths :: proc(
 					img.height,
 					width,
 					height,
+					allocator = context.temp_allocator,
 				)
 				return
 			}
@@ -365,7 +366,7 @@ texture_array_from_images :: proc(
 	device: wgpu.Device,
 	queue: wgpu.Queue,
 	images: []^image.Image,
-	settings: TextureSettings = DEFAULT_TEXTURESETTINGS,
+	settings: TextureSettings = TEXTURE_SETTINGS_DEFAULT,
 ) -> (
 	array: Texture,
 ) {

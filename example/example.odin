@@ -1,6 +1,7 @@
 package example
 
 import d "../dengine"
+import e "../dengine/engine"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -15,10 +16,8 @@ Color :: [4]f32
 recorded_dt: [dynamic]f32
 
 main :: proc() {
-	d.init()
-	defer {d.deinit()}
-
-	fmt.println("sizeL", size_of(d.TerrainVertex))
+	e.init()
+	defer {e.deinit()}
 
 	terrain_textures_paths := [?]string {
 		"./assets/t_0.png",
@@ -26,7 +25,7 @@ main :: proc() {
 		"./assets/t_2.png",
 		"./assets/t_3.png",
 	}
-	d.SCENE.terrain_textures = d.load_texture_array(terrain_textures_paths[:])
+	e.ENGINE.scene.terrain_textures = e.load_texture_array(terrain_textures_paths[:])
 
 	terrain_mesh := d.terrain_mesh_create(
 		{
@@ -34,14 +33,14 @@ main :: proc() {
 			d.TerrainVertex{pos = {5, 7, 0}, indices = {0, 1, 2}, weights = {0, 1, 0}},
 			d.TerrainVertex{pos = {10, 0, 4}, indices = {0, 1, 2}, weights = {0, 0, 1}},
 		},
-		d.ENGINE.device,
-		d.ENGINE.queue,
+		e.ENGINE.platform.device,
+		e.ENGINE.platform.queue,
 	)
 	fmt.println(terrain_mesh)
 
 
-	corn := d.load_texture_tile("./assets/corn.png")
-	sprite := d.load_texture_tile("./assets/can.png")
+	corn := e.load_texture_tile("./assets/corn.png")
+	sprite := e.load_texture_tile("./assets/can.png")
 
 
 	player_pos := Vec3{0, 0, 0}
@@ -53,52 +52,38 @@ main :: proc() {
 	strings.write_string(&text_to_edit, "I made this UI from scratch in Odin!")
 
 	background_color: Color = Color{0, 0.01, 0.02, 1.0}
-	color2: Color = d.Color_Beige
+	color2: Color = d.Color_Brown
 	color3: Color = d.Color_Chartreuse
 	text_align: d.TextAlign
 
 	ball_positions: [dynamic]Vec3
 
-	for d.next_frame() {
-		append(&recorded_dt, d.ENGINE.delta_secs * 1000.0)
+	for e.next_frame() {
+		append(&recorded_dt, e.get_delta_secs() * 1000.0)
 		d.start_window("Example Window")
 		btn_text := "Hold to Record"
-		if d.ui_interaction(d.ui_id("record_btn")).pressed {
-			btn_text = fmt.aprint(
-				"Recording",
-				len(d.ENGINE.time_frame_sections),
-				"frames",
-				allocator = context.temp_allocator,
-			)
-		}
-		i := d.button(btn_text, id = "record_btn")
-		if i.just_pressed {
-			d.engine_start_record_frame_times()
-		}
-		if i.just_released {
-			frame_times := d.engine_end_record_frame_times()
-			save_frame_times_to_csv(frame_times)
-		}
 
+		d.button(btn_text, id = "record_btn")
+		camera := &e.ENGINE.scene.camera
 		d.text("fovy_y")
-		d.slider_f32(&d.SCENE.camera.fov_y, 0.1, 2.0)
+		d.slider_f32(&camera.fov_y, 0.1, 2.0)
 		d.text("height_y")
-		d.slider_f32(&d.SCENE.camera.height_y, 0.1, 40.0)
+		d.slider_f32(&camera.height_y, 0.1, 40.0)
 
 
 		d.text("focus_pos_x")
-		d.slider_f32(&d.SCENE.camera.focus_pos.x, -20, 20)
+		d.slider_f32(&camera.focus_pos.x, -20, 20)
 		d.text("focus_pos_y")
-		d.slider_f32(&d.SCENE.camera.focus_pos.y, -20, 20)
+		d.slider_f32(&camera.focus_pos.y, -20, 20)
 		d.text("focus_pos_z")
-		d.slider_f32(&d.SCENE.camera.focus_pos.z, -20, 20)
+		d.slider_f32(&camera.focus_pos.z, -20, 20)
 
 		d.text("eye_x")
-		d.slider_f32(&d.SCENE.camera.eye_pos.x, -20, 20)
+		d.slider_f32(&camera.eye_pos.x, -20, 20)
 		d.text("eye_y")
-		d.slider_f32(&d.SCENE.camera.eye_pos.y, -20, 20)
+		d.slider_f32(&camera.eye_pos.y, -20, 20)
 		d.text("eye_z")
-		d.slider_f32(&d.SCENE.camera.eye_pos.z, -20, 20)
+		d.slider_f32(&camera.eye_pos.z, -20, 20)
 		// d.text(
 		// 	fmt.aprint(
 		// 		d.camera_to_raw(d.SCENE.camera, d.ENGINE.screen_size_f32),
@@ -106,31 +91,31 @@ main :: proc() {
 		// 	),
 		// )
 		// d.enum_radio(&text_align, "Text Align")
-		// d.enum_radio(&d.ENGINE.settings.tonemapping, "Tonemapping")
-		// d.color_picker(&background_color, "Background")
-		// d.color_picker(&color2, "Color 2")
-		// d.color_picker(&color3, "Color 3")
+		d.enum_radio(&e.ENGINE.settings.tonemapping, "Tonemapping")
+		d.color_picker(&background_color, "Background")
+		d.color_picker(&color2, "Color 2")
+		d.color_picker(&color3, "Color 3")
 		// // enum_radio(&line_break, "Line Break Value")
-		// d.toggle(&d.ENGINE.settings.bloom_enabled, "Bloom")
+		d.toggle(&e.ENGINE.settings.bloom_enabled, "Bloom")
 		// // d.check_box(&d.ENGINE.settings.bloom_enabled, "Bloom enabled")
 		// d.text("Bloom blend factor:")
 		// d.slider(&d.ENGINE.settings.bloom_settings.blend_factor)
 		// d.text_edit(&text_to_edit, align = .Center, font_size = d.THEME.font_size)
-		d.text(d.get_hit().screen_ray)
+		d.text(e.get_hit().screen_ray)
 		d.end_window()
 
-		d.draw_terrain_mesh(&terrain_mesh)
+		e.draw_terrain_mesh(&terrain_mesh)
 
 		for y in -5 ..= 5 {
-			d.draw_gizmos_line(Vec3{-5, f32(y), 0}, Vec3{5, f32(y), 0}, color2)
+			e.draw_gizmos_line(Vec3{-5, f32(y), 0}, Vec3{5, f32(y), 0}, color2)
 		}
 		for x in -5 ..= 5 {
-			d.draw_gizmos_line(Vec3{f32(x), -5, 0}, Vec3{f32(x), 5, 0}, color2)
+			e.draw_gizmos_line(Vec3{f32(x), -5, 0}, Vec3{f32(x), 5, 0}, color2)
 		}
 
-		if d.is_right_pressed() {
+		if e.is_right_pressed() {
 			clear(&ball_positions)
-			ray := d.get_hit().screen_ray
+			ray := e.get_hit().screen_ray
 			for i in 0 ..< 20 {
 				p := ray.origin + ray.direction * f32(i)
 				append(&ball_positions, p)
@@ -139,11 +124,11 @@ main :: proc() {
 		}
 
 		for p in ball_positions {
-			d.draw_gizmos_sphere(p, 0.3, d.Color_Khaki)
+			e.draw_gizmos_sphere(p, 0.3, d.Color_Khaki)
 		}
 
 
-		d.draw_sprite(
+		e.draw_sprite(
 			d.Sprite {
 				texture = sprite,
 				pos = player_pos,
@@ -155,12 +140,12 @@ main :: proc() {
 		// d.gizmos_rect(player_pos, Vec2{0.2, 0.8})
 
 		for pos, i in forest {
-			d.draw_sprite(
+			e.draw_sprite(
 				d.Sprite {
 					texture = corn,
 					pos = Vec3{pos.x, pos.y, 0},
 					size = {1, 2},
-					rotation = math.cos(f32(i) + d.ENGINE.total_secs),
+					rotation = e.get_osc(2, f32(i)),
 					color = {1, 1, 1, 1},
 				},
 			)
@@ -170,21 +155,20 @@ main :: proc() {
 		directions := [?]Vec3{{-1, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}}
 		move: Vec3
 		for k, i in keys {
-			if d.is_key_pressed(k) {
+			if e.is_key_pressed(k) {
 				move += directions[i]
 			}
 		}
 		if move != {0, 0, 0} {
 			move = linalg.normalize(move)
-			player_pos += move * 20 * d.ENGINE.delta_secs
+			player_pos += move * 20 * e.get_delta_secs()
 		}
 
 		// poly := [?]d.Vec2{{-5, -5}, {-5, 0}, {0, 0}, {-5, -5}, {0, 0}, {0, -5}}
 		// d.draw_color_mesh(poly[:])
 		snake_update_body(&snake, Vec2{})
 		snake_draw(&snake)
-		d.ENGINE.settings.clear_color = background_color
-
+		e.ENGINE.settings.clear_color = background_color
 	}
 
 }
@@ -213,7 +197,7 @@ snake_create :: proc(head_pos: Vec2) -> Snake {
 snake_update_body :: proc(snake: ^Snake, head_pos: Vec2) {
 	prev_pos: Vec2
 	snake.points[0] = head_pos
-	s := d.ENGINE.delta_secs * SNAKE_LERP_SPEED
+	s := e.get_delta_secs() * SNAKE_LERP_SPEED
 	s = clamp(s, 0, 1)
 	for i in 1 ..< SNAKE_PTS {
 		follow_pos := snake.points[i - 1]
@@ -306,29 +290,29 @@ snake_draw :: proc(snake: ^Snake) {
 	// 	append(&new_vertices, snake.vertices[i])
 	// }
 	// d.draw_color_mesh(new_vertices[:])
-	d.draw_color_mesh_indexed(snake.vertices[:], snake.indices[:])
+	e.draw_color_mesh_indexed(snake.vertices[:], snake.indices[:])
 }
 
 
-save_frame_times_to_csv :: proc(times: [][d.FrameSection]d.Duration, filename := "times.csv") {
-	buf: ^strings.Builder = new(strings.Builder)
-	defer {
-		strings.builder_destroy(buf)
-		free(buf)
-	}
-	for t in d.FrameSection {
-		fmt.sbprintf(buf, "%s,", t)
-	}
-	fmt.sbprint(buf, "\n")
-	for sample, i in times {
-		for t, t_i in d.FrameSection {
-			ns := f64(sample[t])
-			ms := ns / f64(time.Millisecond)
-			fmt.sbprintf(buf, "%.3f,", ms)
-		}
-		if i != len(times) - 1 {
-			fmt.sbprint(buf, "\n")
-		}
-	}
-	os.write_entire_file(filename, buf.buf[:])
-}
+// save_frame_times_to_csv :: proc(times: [][d.FrameSection]d.Duration, filename := "times.csv") {
+// 	buf: ^strings.Builder = new(strings.Builder)
+// 	defer {
+// 		strings.builder_destroy(buf)
+// 		free(buf)
+// 	}
+// 	for t in d.FrameSection {
+// 		fmt.sbprintf(buf, "%s,", t)
+// 	}
+// 	fmt.sbprint(buf, "\n")
+// 	for sample, i in times {
+// 		for t, t_i in d.FrameSection {
+// 			ns := f64(sample[t])
+// 			ms := ns / f64(time.Millisecond)
+// 			fmt.sbprintf(buf, "%.3f,", ms)
+// 		}
+// 		if i != len(times) - 1 {
+// 			fmt.sbprint(buf, "\n")
+// 		}
+// 	}
+// 	os.write_entire_file(filename, buf.buf[:])
+// }

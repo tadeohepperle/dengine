@@ -175,20 +175,14 @@ VertLayout :: struct {
 	attributes: [dynamic]VertAttibute,
 }
 
-
 RenderPipeline :: struct {
 	config:   RenderPipelineConfig,
 	layout:   wgpu.PipelineLayout,
 	pipeline: wgpu.RenderPipeline,
 }
 
-
-render_pipeline_create_panic :: proc(
-	pipeline: ^RenderPipeline,
-	device: wgpu.Device,
-	reg: ^ShaderRegistry,
-) {
-	err := render_pipeline_create(pipeline, device, reg)
+render_pipeline_create_panic :: proc(pipeline: ^RenderPipeline, reg: ^ShaderRegistry) {
+	err := render_pipeline_create(pipeline, reg)
 	if err != nil {
 		fmt.panicf(
 			"Failed to create Render Pipeline \"%s\": %s",
@@ -198,13 +192,9 @@ render_pipeline_create_panic :: proc(
 	}
 }
 
-render_pipeline_create :: proc(
-	pipeline: ^RenderPipeline,
-	device: wgpu.Device,
-	reg: ^ShaderRegistry,
-) -> MaybeWgpuError {
+render_pipeline_create :: proc(pipeline: ^RenderPipeline, reg: ^ShaderRegistry) -> MaybeWgpuError {
 	config := &pipeline.config
-	wgpu.DevicePushErrorScope(device, .Validation)
+	wgpu.DevicePushErrorScope(reg.device, .Validation)
 	if pipeline.layout == nil {
 		push_consts := config.push_constant_ranges
 		extras := wgpu.PipelineLayoutExtras {
@@ -220,7 +210,7 @@ render_pipeline_create :: proc(
 			bindGroupLayouts     = bindGroupLayouts,
 		}
 
-		pipeline.layout = wgpu.DeviceCreatePipelineLayout(device, &layout_desc)
+		pipeline.layout = wgpu.DeviceCreatePipelineLayout(reg.device, &layout_desc)
 	}
 	vs_shader_module := shader_registry_get(reg, config.vs_shader)
 	fs_shader_module := shader_registry_get(reg, config.fs_shader)
@@ -295,14 +285,15 @@ render_pipeline_create :: proc(
 		primitive = wgpu.PrimitiveState{topology = config.topology, cullMode = .None},
 		multisample = {count = 1, mask = 0xFFFFFFFF},
 	}
-	pipeline_handle := wgpu.DeviceCreateRenderPipeline(device, &pipeline_descriptor)
-	err := wgpu_pop_error_scope(device)
+	pipeline_handle := wgpu.DeviceCreateRenderPipeline(reg.device, &pipeline_descriptor)
+	err := wgpu_pop_error_scope(reg.device)
 	if err == nil {
 		old_pipeline := pipeline.pipeline
 		pipeline.pipeline = pipeline_handle
 		if old_pipeline != nil {
 			wgpu.RenderPipelineRelease(old_pipeline)
 		}
+		shader_registry_register_pipeline(reg, pipeline)
 	}
 
 	return err

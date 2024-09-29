@@ -16,7 +16,7 @@ BloomSettings :: struct {
 	blend_factor: f64,
 }
 
-DEFAULT_BLOOM_SETTINGS :: BloomSettings {
+BLOOM_SETTINGS_DEFAULT :: BloomSettings {
 	blend_factor = 0.1,
 	// TODO: add values that are currently hardcoded in bloom shader
 }
@@ -45,19 +45,13 @@ bloom_renderer_destroy :: proc(rend: ^BloomRenderer) {
 	}
 }
 
-bloom_renderer_create :: proc(
-	rend: ^BloomRenderer,
-	device: wgpu.Device,
-	queue: wgpu.Queue,
-	reg: ^ShaderRegistry,
-	globals_layout: wgpu.BindGroupLayout,
-	size: UVec2,
-) {
-	rend.device = device
-	rend.queue = queue
+bloom_renderer_create :: proc(rend: ^BloomRenderer, platform: ^Platform) {
+	rend.device = platform.device
+	rend.queue = platform.queue
 
-	_create_bloom_textures(rend, size)
+	_create_bloom_textures(rend, platform.screen_size)
 
+	globals_layout := platform.shader_globals_uniform.bind_group_layout
 	first_downsample_config := RenderPipelineConfig {
 		debug_name           = "bloom first_downsample",
 		vs_shader            = "screen",
@@ -67,7 +61,7 @@ bloom_renderer_create :: proc(
 		topology             = .TriangleStrip,
 		vertex               = {},
 		instance             = {},
-		bind_group_layouts   = {globals_layout, rgba_bind_group_layout_cached(device)},
+		bind_group_layouts   = {globals_layout, rgba_bind_group_layout_cached(platform.device)},
 		push_constant_ranges = {},
 		blend                = nil,
 		format               = HDR_FORMAT,
@@ -81,7 +75,7 @@ bloom_renderer_create :: proc(
 		topology             = .TriangleStrip,
 		vertex               = {},
 		instance             = {},
-		bind_group_layouts   = {globals_layout, rgba_bind_group_layout_cached(device)},
+		bind_group_layouts   = {globals_layout, rgba_bind_group_layout_cached(platform.device)},
 		push_constant_ranges = {},
 		blend                = nil,
 		format               = HDR_FORMAT,
@@ -95,7 +89,7 @@ bloom_renderer_create :: proc(
 		topology = .TriangleStrip,
 		vertex = {},
 		instance = {},
-		bind_group_layouts = {globals_layout, rgba_bind_group_layout_cached(device)},
+		bind_group_layouts = {globals_layout, rgba_bind_group_layout_cached(platform.device)},
 		push_constant_ranges = {},
 		blend = wgpu.BlendState {
 			color = wgpu.BlendComponent{srcFactor = .One, dstFactor = .One, operation = .Add},
@@ -112,7 +106,7 @@ bloom_renderer_create :: proc(
 		topology = .TriangleStrip,
 		vertex = {},
 		instance = {},
-		bind_group_layouts = {globals_layout, rgba_bind_group_layout_cached(device)},
+		bind_group_layouts = {globals_layout, rgba_bind_group_layout_cached(platform.device)},
 		push_constant_ranges = {},
 		blend = wgpu.BlendState {
 			color = wgpu.BlendComponent{srcFactor = .Constant, dstFactor = .One, operation = .Add},
@@ -125,10 +119,10 @@ bloom_renderer_create :: proc(
 	rend.upsample_pipeline.config = upsample_config
 	rend.final_upsample_pipeline.config = final_upsample_config
 
-	render_pipeline_create_panic(&rend.first_downsample_pipeline, device, reg)
-	render_pipeline_create_panic(&rend.downsample_pipeline, device, reg)
-	render_pipeline_create_panic(&rend.upsample_pipeline, device, reg)
-	render_pipeline_create_panic(&rend.final_upsample_pipeline, device, reg)
+	render_pipeline_create_panic(&rend.first_downsample_pipeline, &platform.shader_registry)
+	render_pipeline_create_panic(&rend.downsample_pipeline, &platform.shader_registry)
+	render_pipeline_create_panic(&rend.upsample_pipeline, &platform.shader_registry)
+	render_pipeline_create_panic(&rend.final_upsample_pipeline, &platform.shader_registry)
 
 }
 

@@ -201,7 +201,7 @@ slider_f32 :: proc(value: ^f32, min: f32 = 0, max: f32 = 1, id: UiId = 0) {
 	f := (val - min) / (max - min)
 	res := ui_interaction(id)
 
-	scroll := cache.input.scroll
+	scroll := cache.platform.scroll
 	if res.just_pressed {
 		cached := cache.cached[id]
 		f = (cache.cursor_pos.x - knob_width / 2 - cached.pos.x) / (cached.size.x - knob_width)
@@ -340,13 +340,14 @@ edit_old :: proc(value: ^strings.Builder) {
 	id := u64(uintptr(value))
 	res := ui_interaction(id)
 
-	input := UI_MEMORY.cache.input
+	platform := UI_MEMORY.cache.platform
 
 	if res.focused {
-		for c in input.chars[:input.chars_len] {
+		for c in platform.chars[:platform.chars_len] {
 			strings.write_rune(value, c)
 		}
-		if .JustPressed in input.keys[.BACKSPACE] || .JustRepeated in input.keys[.BACKSPACE] {
+		if .JustPressed in platform.keys[.BACKSPACE] ||
+		   .JustRepeated in platform.keys[.BACKSPACE] {
 			if strings.builder_len(value^) > 0 {
 				strings.pop_rune(value)
 			}
@@ -635,8 +636,8 @@ color_picker :: proc(value: ^Color, title: string = "", id: UiId = 0) {
 		end_div() // end hue slider area
 
 
-		@(static)builder_created: bool
-		@(static)color_hex_str: strings.Builder
+		@(static) builder_created: bool
+		@(static) color_hex_str: strings.Builder
 		if !builder_created {
 			builder_created = true
 			color_hex_str := strings.builder_make(allocator = context.temp_allocator)
@@ -769,7 +770,7 @@ text_edit :: proc(
 
 
 	cache := UI_MEMORY.cache
-	input := UI_MEMORY.cache.input
+	platform := UI_MEMORY.cache.platform
 	if res.focused {
 		if id != g_id {
 			g_id = id
@@ -779,26 +780,26 @@ text_edit :: proc(
 			}
 			edit.begin(&g_state, id, value)
 		}
-		for c in input.chars[:input.chars_len] {
+		for c in platform.chars[:platform.chars_len] {
 			if strings.rune_count(strings.to_string(value^)) < max_characters {
 				edit.input_rune(&g_state, c)
 			}
 		}
 
-		is_ctrl_pressed := input_pressed(input, .LEFT_CONTROL)
-		is_shift_pressed := input_pressed(input, .LEFT_SHIFT)
+		is_ctrl_pressed := platform_is_pressed(platform, .LEFT_CONTROL)
+		is_shift_pressed := platform_is_pressed(platform, .LEFT_SHIFT)
 
-		if input_just_pressed_or_repeated(input, .BACKSPACE) {
+		if platform_just_pressed_or_repeated(platform, .BACKSPACE) {
 			edit.delete_to(&g_state, .Left)
 		}
-		if input_just_pressed_or_repeated(input, .DELETE) {
+		if platform_just_pressed_or_repeated(platform, .DELETE) {
 			edit.delete_to(&g_state, .Right)
 		}
-		if input_just_pressed_or_repeated(input, .ENTER) {
+		if platform_just_pressed_or_repeated(platform, .ENTER) {
 			edit.perform_command(&g_state, .New_Line)
 		}
-		if input_pressed(input, .LEFT_CONTROL) {
-			if input_just_pressed(input, .A) {
+		if platform_is_pressed(platform, .LEFT_CONTROL) {
+			if platform_just_pressed(platform, .A) {
 				edit.perform_command(&g_state, .Select_All)
 			}
 			// if input_just_pressed(input, .Z) { // nor working at the moment, I don't understand the undo API of text edit.
@@ -807,18 +808,18 @@ text_edit :: proc(
 			// if input_just_pressed(input, .Y) {
 			// 	edit.perform_command(&g_state, .Redo)
 			// }
-			if input_just_pressed(input, .C) {
-				input_set_clipboard(input, edit.current_selected_text(&g_state))
+			if platform_just_pressed(platform, .C) {
+				platform_set_clipboard(platform, edit.current_selected_text(&g_state))
 			}
-			if input_just_pressed(input, .X) {
-				input_set_clipboard(input, edit.current_selected_text(&g_state))
+			if platform_just_pressed(platform, .X) {
+				platform_set_clipboard(platform, edit.current_selected_text(&g_state))
 				edit.selection_delete(&g_state)
 			}
-			if input_just_pressed(input, .V) {
-				edit.input_text(&g_state, input_get_clipboard(input))
+			if platform_just_pressed(platform, .V) {
+				edit.input_text(&g_state, platform_get_clipboard(platform))
 			}
 		}
-		if input_just_pressed_or_repeated(input, .LEFT) {
+		if platform_just_pressed_or_repeated(platform, .LEFT) {
 			if is_shift_pressed {
 				if is_ctrl_pressed {
 					edit.select_to(&g_state, .Word_Left)
@@ -834,7 +835,7 @@ text_edit :: proc(
 			}
 		}
 
-		if input_just_pressed_or_repeated(input, .RIGHT) {
+		if platform_just_pressed_or_repeated(platform, .RIGHT) {
 			if is_shift_pressed {
 				if is_ctrl_pressed {
 					edit.select_to(&g_state, .Word_Right)
@@ -863,7 +864,7 @@ text_edit :: proc(
 	border_color: Color = THEME.surface_border if res.focused else THEME.surface
 	bg_color: Color = THEME.surface_deep
 
-	caret_opacity: f32 = 1.0 if math.sin(input.total_secs * 8.0) > 0.0 else 0.0
+	caret_opacity: f32 = 1.0 if math.sin(platform.total_secs * 8.0) > 0.0 else 0.0
 	markers_data: MarkersData = {
 		text_id         = text_id,
 		just_pressed    = res.just_pressed,
@@ -872,7 +873,7 @@ text_edit :: proc(
 		caret_width     = 4,
 		caret_color     = {THEME.text.r, THEME.text.g, THEME.text.b, caret_opacity},
 		selection_color = THEME.surface,
-		shift_pressed   = input_pressed(input, .LEFT_SHIFT),
+		shift_pressed   = platform_is_pressed(platform, .LEFT_SHIFT),
 	}
 	start_div(
 		Div {

@@ -11,6 +11,7 @@ ShaderRegistry :: struct {
 	changed_shaders_since_last_watch: [dynamic]string,
 	device:                           wgpu.Device,
 	shaders:                          map[string]Shader,
+	registered_pipelines:             [dynamic]^RenderPipeline,
 }
 
 
@@ -50,6 +51,10 @@ StringAndCString :: struct {
 // 	delete(shader.composited.imports)
 // }
 
+shader_registry_destroy :: proc(reg: ^ShaderRegistry) {
+	delete(reg.registered_pipelines) // todo: likely more to delete here, but should not matter much, because only happens at end of program
+}
+
 shader_registry_create :: proc(
 	device: wgpu.Device,
 	shaders_dir_path: string = "./shaders",
@@ -63,6 +68,15 @@ shader_registry_get :: proc(reg: ^ShaderRegistry, shader_name: string) -> wgpu.S
 		fmt.panicf("shader_registry_get should not panic (at least not on hot-reload): %s", err)
 	}
 	return shader.shader_module
+}
+
+shader_registry_register_pipeline :: proc(reg: ^ShaderRegistry, pipeline: ^RenderPipeline) {
+	for ptr in reg.registered_pipelines {
+		if rawptr(ptr) == rawptr(pipeline) {
+			return
+		}
+	}
+	append(&reg.registered_pipelines, pipeline)
 }
 
 // Note: does not create shader module
@@ -187,8 +201,8 @@ load_shader_wgsl :: proc(
 //
 // Warning: There are a couple of memory leaks regarding strings, import dynamic arrays, etc. in here: I don't care at the moment
 // Hot reloading is only meant for development anyway, so fuck it - Tadeo Hepperle, 2024-07-13
-shader_registry_hot_reload :: proc(reg: ^ShaderRegistry, hot_reload_pipelines: []^RenderPipeline) {
-	if len(hot_reload_pipelines) == 0 {
+shader_registry_hot_reload :: proc(reg: ^ShaderRegistry) {
+	if len(reg.registered_pipelines) == 0 {
 		return
 	}
 	// try to find a shader file that has changed:
@@ -260,12 +274,12 @@ shader_registry_hot_reload :: proc(reg: ^ShaderRegistry, hot_reload_pipelines: [
 		}
 	}
 	// if we get until here, no error has occurred, we can recreate pipelines using any o
-	for &pipeline in hot_reload_pipelines {
+	for &pipeline in reg.registered_pipelines {
 		should_recreate_pipeline :=
 			pipeline.config.vs_shader in shaders_with_changed_modules ||
 			pipeline.config.fs_shader in shaders_with_changed_modules
 		if should_recreate_pipeline {
-			err := render_pipeline_create(pipeline, reg.device, reg)
+			err := render_pipeline_create(pipeline, reg)
 			switch e in err {
 			case WgpuError:
 				fmt.eprintfln("Error creating pipeline %s: %s", pipeline.config.debug_name, err)

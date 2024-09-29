@@ -70,6 +70,11 @@ lerp :: proc(a: $T, b: T, s: f32) -> T {
 Empty :: struct {}
 
 print :: fmt.println
+
+tmp_str :: proc(args: ..any) -> string {
+	return fmt.aprint(..args, allocator = context.temp_allocator)
+}
+
 print_line :: proc(message: string = "") {
 	if message != "" {
 		fmt.printfln(
