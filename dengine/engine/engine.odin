@@ -220,7 +220,7 @@ _engine_render :: proc(engine: ^Engine) {
 
 	// hdr render pass:
 	hdr_pass := d.platform_start_hdr_pass(engine.platform, command_encoder)
-	global_bind_group := engine.platform.shader_globals_uniform.bind_group
+	global_bind_group := engine.platform.globals.bind_group
 	asset_manager := engine.platform.asset_manager
 	d.terrain_renderer_render(
 		&engine.terrain_renderer,

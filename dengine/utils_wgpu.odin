@@ -212,6 +212,7 @@ render_pipeline_create :: proc(pipeline: ^RenderPipeline, reg: ^ShaderRegistry) 
 
 		pipeline.layout = wgpu.DeviceCreatePipelineLayout(reg.device, &layout_desc)
 	}
+
 	vs_shader_module := shader_registry_get(reg, config.vs_shader)
 	fs_shader_module := shader_registry_get(reg, config.fs_shader)
 

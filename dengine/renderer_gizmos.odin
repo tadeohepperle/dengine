@@ -31,7 +31,7 @@ gizmos_renderer_create :: proc(rend: ^GizmosRenderer, platform: ^Platform) {
 	}
 	rend.pipeline.config = gizmos_pipeline_config(
 		platform.device,
-		platform.shader_globals_uniform.bind_group_layout,
+		platform.globals.bind_group_layout,
 	)
 	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)
 }

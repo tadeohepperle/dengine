@@ -76,7 +76,7 @@ terrain_renderer_create :: proc(rend: ^TerrainRenderer, platform: ^Platform) {
 	rend.queue = platform.queue
 	rend.pipeline.config = terrain_pipeline_config(
 		platform.device,
-		platform.shader_globals_uniform.bind_group_layout,
+		platform.globals.bind_group_layout,
 		rgba_texture_array_bind_group_layout_cached(platform.device),
 	)
 	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)

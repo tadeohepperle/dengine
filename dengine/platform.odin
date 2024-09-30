@@ -81,8 +81,8 @@ Platform :: struct {
 
 	// globals: 
 	camera:                       Camera,
-	shader_globals:               ShaderGlobals,
-	shader_globals_uniform:       UniformBuffer(ShaderGlobals),
+	globals_data:                 ShaderGlobals,
+	globals:                      UniformBuffer(ShaderGlobals),
 }
 
 ShaderGlobals :: struct {
@@ -114,7 +114,7 @@ platform_create :: proc(
 		HDR_SCREEN_TEXTURE_SETTINGS,
 	)
 	platform.shader_registry = shader_registry_create(platform.device, settings.shaders_dir_path)
-	uniform_buffer_create(&platform.shader_globals_uniform, platform.device)
+	uniform_buffer_create(&platform.globals, platform.device)
 	platform.tonemapping_pipeline.config = tonemapping_pipeline_config(platform.device)
 	render_pipeline_create_panic(&platform.tonemapping_pipeline, &platform.shader_registry)
 	asset_manager_create(
@@ -128,7 +128,7 @@ platform_create :: proc(
 platform_prepare :: proc(platform: ^Platform) {
 	screen_size := platform.screen_size_f32
 	camera_raw := camera_to_raw(platform.camera, screen_size)
-	platform.shader_globals = ShaderGlobals {
+	platform.globals_data = ShaderGlobals {
 		view_proj   = camera_raw.view_proj,
 		proj        = camera_raw.proj,
 		view        = camera_raw.view,
@@ -137,15 +137,11 @@ platform_prepare :: proc(platform: ^Platform) {
 		cursor_pos  = platform.cursor_pos,
 		time_secs   = platform.total_secs,
 	}
-	uniform_buffer_write(
-		platform.queue,
-		&platform.shader_globals_uniform,
-		&platform.shader_globals,
-	)
+	uniform_buffer_write(platform.queue, &platform.globals, &platform.globals_data)
 }
 
 platform_destroy :: proc(platform: ^Platform) {
-	uniform_buffer_destroy(&platform.shader_globals_uniform)
+	uniform_buffer_destroy(&platform.globals)
 	render_pipeline_destroy(&platform.tonemapping_pipeline)
 	asset_manager_destroy(&platform.asset_manager)
 	shader_registry_destroy(&platform.shader_registry)

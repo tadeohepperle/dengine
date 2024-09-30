@@ -1822,12 +1822,12 @@ ui_renderer_create :: proc(
 	rend.queue = platform.queue
 	rend.rect_pipeline.config = ui_rect_pipeline_config(
 		platform.device,
-		platform.shader_globals_uniform.bind_group_layout,
+		platform.globals.bind_group_layout,
 	)
 	render_pipeline_create_panic(&rend.rect_pipeline, &platform.shader_registry)
 	rend.glyph_pipeline.config = ui_glyph_pipeline_config(
 		platform.device,
-		platform.shader_globals_uniform.bind_group_layout,
+		platform.globals.bind_group_layout,
 	)
 	render_pipeline_create_panic(&rend.glyph_pipeline, &platform.shader_registry)
 	UI_MEMORY.default_font = 0

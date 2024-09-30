@@ -23,7 +23,7 @@ color_mesh_renderer_create :: proc(rend: ^ColorMeshRenderer, platform: ^Platform
 	rend.index_buffer.usage = {.Index}
 	rend.pipeline.config = color_mesh_pipeline_config(
 		platform.device,
-		platform.shader_globals_uniform.bind_group_layout,
+		platform.globals.bind_group_layout,
 	)
 	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)
 }

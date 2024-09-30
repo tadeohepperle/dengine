@@ -153,7 +153,7 @@ sprite_renderer_create :: proc(rend: ^SpriteRenderer, platform: ^Platform) {
 	rend.instance_buffer.usage = {.Vertex}
 	rend.pipeline.config = sprite_pipeline_config(
 		platform.device,
-		platform.shader_globals_uniform.bind_group_layout,
+		platform.globals.bind_group_layout,
 	)
 	render_pipeline_create_panic(&rend.pipeline, &platform.shader_registry)
 }

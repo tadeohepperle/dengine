@@ -51,7 +51,7 @@ bloom_renderer_create :: proc(rend: ^BloomRenderer, platform: ^Platform) {
 
 	_create_bloom_textures(rend, platform.screen_size)
 
-	globals_layout := platform.shader_globals_uniform.bind_group_layout
+	globals_layout := platform.globals.bind_group_layout
 	first_downsample_config := RenderPipelineConfig {
 		debug_name           = "bloom first_downsample",
 		vs_shader            = "screen",

@@ -63,6 +63,7 @@ shader_registry_create :: proc(
 }
 
 shader_registry_get :: proc(reg: ^ShaderRegistry, shader_name: string) -> wgpu.ShaderModule {
+
 	shader, err := get_or_load_shader(reg, shader_name, true)
 	if err != "" {
 		fmt.panicf("shader_registry_get should not panic (at least not on hot-reload): %s", err)
@@ -174,6 +175,7 @@ load_shader_wgsl :: proc(
 ) -> (
 	err: string,
 ) {
+	print("LOAD", shader_name, shader)
 	shader.src.path = fmt.aprintf("%s/%s.wgsl", reg.shaders_dir_path, shader_name)
 	src_time, src_err := os.last_write_time_by_name(shader.src.path)
 	if src_err != 0 {
